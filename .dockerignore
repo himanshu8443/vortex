@@ -1,0 +1,8 @@
+node_modules
+.next
+data
+.env
+Dockerfile
+docker-compose.yml
+.git
+.vscode

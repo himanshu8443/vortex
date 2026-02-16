@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # -----------------------------------------------------------------
+  # 1. TRAEFIK ( The Gateway )
+  # -----------------------------------------------------------------
+  traefik:
+    image: traefik:v3.6
+    container_name: vortex-traefik
+    restart: always
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "80:80"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro # Read-only access to Docker
+    networks:
+      - vortex-net
+
+  # -----------------------------------------------------------------
+  # 2. Web App
+  # -----------------------------------------------------------------
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: vortex-dashboard
+    restart: always
+    environment:
+      - DATABASE_URL=file:/app/data/db.sqlite
+      - NODE_ENV=production
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/app/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`dashboard.localhost`)"
+      - "traefik.http.services.dashboard.loadbalancer.server.port=3000"
+    networks:
+      - vortex-net
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+networks:
+  vortex-net:
+    name: vortex-net
+    driver: bridge

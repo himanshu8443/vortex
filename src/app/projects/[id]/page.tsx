@@ -1,0 +1,287 @@
+"use client";
+
+import {
+	useParams,
+	usePathname,
+	useRouter,
+	useSearchParams,
+} from "next/navigation";
+import * as React from "react";
+import { DangerZoneTab } from "@/components/projects/danger-zone-tab";
+import { DeploymentsTab } from "@/components/projects/deployments-tab";
+import { EnvTab } from "@/components/projects/env-tab";
+import { LogsTab } from "@/components/projects/logs-tab";
+import { ProjectHeader } from "@/components/projects/project-header";
+import { SettingsTab } from "@/components/projects/settings-tab";
+import { Button } from "@/components/ui/button";
+import { StatusBanner } from "@/components/ui/status-banner";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { api } from "@/trpc/react";
+
+const fallbackVariables = [{ key: "", value: "" }];
+const tabValues = ["settings", "deployments", "logs", "env", "danger"] as const;
+
+type ProjectTab = (typeof tabValues)[number];
+
+function isProjectTab(value: string | null): value is ProjectTab {
+	return value !== null && tabValues.includes(value as ProjectTab);
+}
+
+function mapProjectStatus(
+	status: string | null,
+): "online" | "building" | "offline" {
+	if (status === "RUNNING") return "online";
+	if (
+		status === "STARTING" ||
+		status === "DEPLOYING" ||
+		status === "BUILDING"
+	) {
+		return "building";
+	}
+	return "offline";
+}
+
+function getUpdatedAtLabel(dateValue: Date | null) {
+	if (!dateValue) return "just now";
+	const diffMs = Date.now() - new Date(dateValue).getTime();
+	const diffMinutes = Math.floor(diffMs / 60000);
+	if (diffMinutes < 1) return "just now";
+	if (diffMinutes < 60) return `${diffMinutes}m ago`;
+	const diffHours = Math.floor(diffMinutes / 60);
+	if (diffHours < 24) return `${diffHours}h ago`;
+	const diffDays = Math.floor(diffHours / 24);
+	return `${diffDays}d ago`;
+}
+
+export default function ProjectPage() {
+	const params = useParams();
+	const pathname = usePathname();
+	const router = useRouter();
+	const searchParams = useSearchParams();
+	const projectId = params.id as string;
+	const tabFromQuery = searchParams.get("tab");
+	const activeTab: ProjectTab = isProjectTab(tabFromQuery)
+		? tabFromQuery
+		: "settings";
+
+	const {
+		data: projectResponse,
+		isLoading,
+		error,
+		refetch,
+	} = api.project.getProjectById.useQuery(
+		{ projectId },
+		{ enabled: !!projectId, refetchInterval: 3000 },
+	);
+
+	const deleteProject = api.project.deleteProject.useMutation({
+		onSuccess: () => {
+			window.location.href = "/";
+		},
+	});
+
+	const redeployProject = api.project.redeploy.useMutation({
+		onSuccess: () => {
+			void refetch();
+		},
+	});
+
+	const restartProject = api.project.restart.useMutation({
+		onSuccess: () => {
+			void refetch();
+		},
+	});
+
+	const project = projectResponse?.data;
+
+	const initialVariables = React.useMemo(() => {
+		if (!project?.envVars) return fallbackVariables;
+		try {
+			const parsed = JSON.parse(project.envVars) as Array<{
+				key: string;
+				value: string;
+			}>;
+			if (!Array.isArray(parsed) || parsed.length === 0)
+				return fallbackVariables;
+			return parsed.map((entry) => ({
+				key: entry.key ?? "",
+				value: entry.value ?? "",
+			}));
+		} catch {
+			return fallbackVariables;
+		}
+	}, [project?.envVars]);
+
+	// State for unsaved changes banner
+	const [hasChanges, setHasChanges] = React.useState(false);
+	const [variables, setVariables] = React.useState(fallbackVariables);
+
+	const handleTabChange = React.useCallback(
+		(value: string) => {
+			if (!isProjectTab(value)) return;
+
+			const nextParams = new URLSearchParams(searchParams.toString());
+			nextParams.set("tab", value);
+
+			router.replace(`${pathname}?${nextParams.toString()}`, {
+				scroll: false,
+			});
+		},
+		[pathname, router, searchParams],
+	);
+
+	React.useEffect(() => {
+		setVariables(initialVariables);
+	}, [initialVariables]);
+
+	// Simulation of making changes
+	const handleInputChange = () => {
+		setHasChanges(true);
+	};
+
+	const handleSave = () => {
+		// Simulate saving
+		setTimeout(() => {
+			setHasChanges(false);
+		}, 1000);
+	};
+
+	const handleDelete = () => {
+		void deleteProject.mutateAsync({ projectId });
+	};
+
+	const handleRedeploy = () => {
+		void redeployProject.mutateAsync({ projectId });
+	};
+
+	const handleRestart = () => {
+		void restartProject.mutateAsync({ projectId });
+	};
+
+	const handleDiscard = () => {
+		setHasChanges(false);
+		setVariables([...initialVariables]);
+	};
+
+	if (isLoading) {
+		return (
+			<div className="container mx-auto mt-10 max-w-6xl px-4 text-muted-foreground text-sm md:px-6">
+				Loading project details...
+			</div>
+		);
+	}
+
+	if (error || !project) {
+		return (
+			<div className="container mx-auto mt-10 max-w-6xl space-y-3 px-4 md:px-6">
+				<div className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-destructive text-sm">
+					Failed to load project details.
+				</div>
+				<Button onClick={() => void refetch()} size="sm" variant="outline">
+					Retry
+				</Button>
+			</div>
+		);
+	}
+
+	const primaryDomain = project.ports[0]?.domain ?? `${project.name}.localhost`;
+	const repoDisplay = project.repoUrl ?? project.image ?? "manual";
+
+	return (
+		<div className="min-h-screen pb-20">
+			<ProjectHeader
+				branch={project.branch ?? "main"}
+				domain={primaryDomain}
+				gitRepo={repoDisplay}
+				isRedeploying={redeployProject.isPending}
+				isRestarting={restartProject.isPending}
+				lastUpdated={getUpdatedAtLabel(
+					project.updatedAt ?? project.createdAt ?? null,
+				)}
+				onRedeploy={handleRedeploy}
+				onRestart={handleRestart}
+				projectName={project.name}
+				status={mapProjectStatus(project.status)}
+			/>
+
+			<main className="container mx-auto mt-8 max-w-6xl px-4 md:px-6">
+				<Tabs
+					className="w-full space-y-8"
+					onValueChange={handleTabChange}
+					orientation="horizontal"
+					value={activeTab}
+				>
+					<TabsList
+						className="h-auto w-full justify-start rounded-none border-border/40 border-b bg-transparent p-0 pb-1"
+						variant="line"
+					>
+						<TabsTrigger
+							className="rounded-none border-transparent border-b-2 px-4 pt-2 pb-3 font-medium data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							value="settings"
+						>
+							Configuration
+						</TabsTrigger>
+						<TabsTrigger
+							className="rounded-none border-transparent border-b-2 px-4 pt-2 pb-3 font-medium data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							value="deployments"
+						>
+							Deployments
+						</TabsTrigger>
+						<TabsTrigger
+							className="rounded-none border-transparent border-b-2 px-4 pt-2 pb-3 font-medium data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							value="logs"
+						>
+							Logs
+						</TabsTrigger>
+						<TabsTrigger
+							className="rounded-none border-transparent border-b-2 px-4 pt-2 pb-3 font-medium data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							value="env"
+						>
+							Environment
+						</TabsTrigger>
+						<TabsTrigger
+							className="rounded-none border-transparent border-b-2 px-4 pt-2 pb-3 font-medium text-destructive hover:text-destructive/80 data-[state=active]:border-destructive data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+							value="danger"
+						>
+							Danger Zone
+						</TabsTrigger>
+					</TabsList>
+
+					<TabsContent value="deployments">
+						<DeploymentsTab project={project} />
+					</TabsContent>
+
+					<TabsContent value="logs">
+						<LogsTab
+							latestDeploymentId={project.activeDeploymentId}
+							projectId={projectId}
+							status={project.status}
+						/>
+					</TabsContent>
+
+					<TabsContent value="settings">
+						<SettingsTab onRedeploy={handleRedeploy} project={project} />
+					</TabsContent>
+
+					<TabsContent value="env">
+						<EnvTab onInputChange={handleInputChange} variables={variables} />
+					</TabsContent>
+
+					<TabsContent value="danger">
+						<DangerZoneTab
+							isDeleting={deleteProject.isPending}
+							onDelete={handleDelete}
+						/>
+					</TabsContent>
+				</Tabs>
+			</main>
+
+			<StatusBanner
+				loading={false}
+				onAction={handleSave}
+				onCancel={handleDiscard}
+				open={hasChanges}
+			/>
+		</div>
+	);
+}
