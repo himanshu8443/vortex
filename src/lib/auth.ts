@@ -5,6 +5,9 @@ import { db } from "@/server/db";
 
 export const auth = betterAuth({
 	trustedOrigins: env?.PUBLIC_URL ? [env.PUBLIC_URL] : ["*"],
+	advanced: {
+		useSecureCookies: env?.PUBLIC_URL?.startsWith("https://") ?? false,
+	},
 	database: drizzleAdapter(db, {
 		provider: "sqlite",
 	}),
