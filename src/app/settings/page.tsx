@@ -1,13 +1,16 @@
 "use client";
 
 import {
+	Check,
 	ExternalLink,
 	Github,
 	Link2,
 	Loader2,
 	Plus,
+	Save,
 	Settings,
 	Trash2,
+	User,
 } from "lucide-react";
 import * as React from "react";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +20,137 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { api } from "@/trpc/react";
+
+function ProfileForm() {
+	const { data: profile, isLoading } = api.user.getProfile.useQuery();
+	const utils = api.useUtils();
+
+	const [name, setName] = React.useState("");
+	const [email, setEmail] = React.useState("");
+	const [wildcardDomain, setWildcardDomain] = React.useState("");
+	const [vortexDomain, setVortexDomain] = React.useState("");
+	const [isSaving, setIsSaving] = React.useState(false);
+	const [saveSuccess, setSaveSuccess] = React.useState(false);
+
+	React.useEffect(() => {
+		if (profile) {
+			setName(profile.name || "");
+			setEmail(profile.email || "");
+			setWildcardDomain(profile.wildcardDomain || "");
+			setVortexDomain(profile.vortexDomain || "");
+		}
+	}, [profile]);
+
+	const updateProfile = api.user.updateProfile.useMutation({
+		onSuccess: () => {
+			void utils.user.getProfile.invalidate();
+			setSaveSuccess(true);
+			setIsSaving(false);
+			setTimeout(() => setSaveSuccess(false), 3000);
+		},
+		onError: () => {
+			setIsSaving(false);
+		},
+	});
+
+	const handleSubmit = (e: React.FormEvent) => {
+		e.preventDefault();
+		setIsSaving(true);
+		updateProfile.mutate({
+			name,
+			email,
+			wildcardDomain: wildcardDomain || undefined,
+			vortexDomain: vortexDomain || undefined,
+		});
+	};
+
+	if (isLoading) {
+		return (
+			<GlassCard className="flex justify-center border border-border/60 p-8">
+				<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+			</GlassCard>
+		);
+	}
+
+	return (
+		<GlassCard className="border border-border/60">
+			<form className="space-y-4" onSubmit={handleSubmit}>
+				<div className="grid gap-4 sm:grid-cols-2">
+					<div className="space-y-2">
+						<Label htmlFor="name">Display Name</Label>
+						<Input
+							className="bg-background/50"
+							id="name"
+							onChange={(e) => setName(e.target.value)}
+							value={name}
+						/>
+					</div>
+					<div className="space-y-2">
+						<Label htmlFor="email">Email</Label>
+						<Input
+							className="bg-background/50"
+							id="email"
+							onChange={(e) => setEmail(e.target.value)}
+							type="email"
+							value={email}
+						/>
+					</div>
+				</div>
+
+				<div className="space-y-2">
+					<Label htmlFor="wildcard-domain">Wildcard Domain URL</Label>
+					<Input
+						className="bg-background/50"
+						id="wildcard-domain"
+						onChange={(e) => setWildcardDomain(e.target.value)}
+						placeholder="e.g. https://.example.com"
+						value={wildcardDomain}
+					/>
+					<p className="text-[10px] text-muted-foreground">
+						{" "}
+						Base URL pattern for deployments (include protocol).
+					</p>
+				</div>
+
+				<div className="space-y-2">
+					<Label htmlFor="vortex-domain">Vortex Domain URL</Label>
+					<Input
+						className="bg-background/50"
+						id="vortex-domain"
+						onChange={(e) => setVortexDomain(e.target.value)}
+						placeholder="e.g. https://vortex.example.com"
+						value={vortexDomain}
+					/>
+					<p className="text-[10px] text-muted-foreground">
+						{" "}
+						Full URL for accessing your Vortex dashboard.
+					</p>
+				</div>
+
+				<div className="flex justify-end pt-2">
+					<Button disabled={isSaving || !name || !email} type="submit">
+						{isSaving ? (
+							<>
+								<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+								Saving...
+							</>
+						) : saveSuccess ? (
+							<>
+								<Check className="mr-2 h-4 w-4" />
+								Saved!
+							</>
+						) : (
+							<>
+								<Save className="mr-2 h-4 w-4" />
+								Save Changes
+							</>
+						)}
+					</Button>
+				</div>
+			</form>
+		</GlassCard>
+	);
+}
 
 export default function SettingsPage() {
 	const [appName, setAppName] = React.useState("");
@@ -119,6 +253,19 @@ export default function SettingsPage() {
 					GitHub App connected successfully!
 				</div>
 			)}
+
+			{/* General Settings Section */}
+			<section className="mb-10">
+				<div className="mb-4 flex items-center gap-2">
+					<User className="h-5 w-5 text-muted-foreground" />
+					<h2 className="font-semibold text-lg">General Settings</h2>
+				</div>
+				<p className="mb-6 text-muted-foreground text-sm leading-relaxed">
+					Manage your personal account settings and domain preferences.
+				</p>
+
+				<ProfileForm />
+			</section>
 
 			{/* GitHub Integration Section */}
 			<section>
