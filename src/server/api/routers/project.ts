@@ -54,28 +54,7 @@ export const projectRouter = createTRPCRouter({
 				portsData: z.array(
 					z.object({
 						port: z.number().int().min(1).max(65535),
-						domain: z
-							.string()
-							.min(1)
-							.refine(
-								(val) => {
-									// 1. Check if it's a valid domain (including localhost)
-									// Simple regex for domain/subdomain
-									const isDomain =
-										/^(?!-)(?:[a-zA-Z0-9-]{0,62}[a-zA-Z0-9]\.)+[a-zA-Z]{2,63}$|^localhost$/.test(
-											val,
-										);
-									if (isDomain) return true;
-
-									return false;
-								},
-								{
-									message:
-										"Must be a valid domain (e.g. app.com) or a port number (1-65535)",
-								},
-							)
-							.optional()
-							.nullable(),
+						domain: z.string().url().optional().nullable(),
 						exposedPort: z
 							.string()
 							.refine(
