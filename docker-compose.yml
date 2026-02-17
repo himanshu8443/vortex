@@ -9,15 +9,38 @@ services:
     container_name: vortex-traefik
     restart: always
     command:
+      # Global Settings
       - "--api.insecure=true"
+      - "--api.dashboard=true"
+      - "--log.level=INFO"
+
+      # Entrypoints
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      
+      # Certificate Resolver (LetsEncrypt)
+      - "--certificatesresolvers.myresolver.acme.email=sangwanhimanshu8443@gmail.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+      # Use HTTP Challenge
+      - "--certificatesresolvers.myresolver.acme.httpchallenge=true"
+      - "--certificatesresolvers.myresolver.acme.httpchallenge.entrypoint=web"
+      
+      # Provider 1: Docker (For User Apps)
       - "--providers.docker=true"
       - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
+      - "--providers.docker.network=vortex-net"
+
+      # Provider 2: File (For Dashboard Domain Updates)
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
     ports:
       - "80:80"
+      - "443:443"
       - "8080:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro # Read-only access to Docker
+      - ${DATA_DIR:-./data}/ssl:/letsencrypt
+      - ${DATA_DIR:-./data}/traefik:/etc/traefik/dynamic
     networks:
       - vortex-net
 
@@ -35,9 +58,11 @@ services:
     environment:
       - DATABASE_URL=file:/app/data/db.sqlite
       - NODE_ENV=production
+      - TRAEFIK_CONFIG_DIR=/app/traefik-config
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ./data:/app/data
+      - ${DATA_DIR:-./data}/db:/app/data
+      - ${DATA_DIR:-./data}/traefik:/app/traefik-config
     labels:
       - "traefik.enable=true"
       - "traefik.http.routers.dashboard.rule=Host(`dashboard.localhost`)"
@@ -51,3 +76,8 @@ networks:
   vortex-net:
     name: vortex-net
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: vortex-bridge
+
+volumes:
+  vortex-traefik-config:
