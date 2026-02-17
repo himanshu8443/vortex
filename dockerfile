@@ -46,8 +46,18 @@ RUN apk add --no-cache \
     docker-cli
 
 # INSTALL RAILPACK
-# This script downloads the binary and puts it in /usr/local/bin
-RUN curl -sSL https://railpack.com/install.sh | sh
+ARG RAILPACK_VERSION=v0.17.2
+RUN set -eux; \
+        arch="$(uname -m)"; \
+        case "$arch" in \
+            x86_64) target="x86_64-unknown-linux-musl" ;; \
+            aarch64|arm64) target="arm64-unknown-linux-musl" ;; \
+            *) echo "Unsupported architecture: $arch"; exit 1 ;; \
+        esac; \
+        curl -fsSL "https://github.com/railwayapp/railpack/releases/download/${RAILPACK_VERSION}/railpack-${RAILPACK_VERSION}-${target}.tar.gz" \
+            | tar -xz -C /usr/local/bin railpack; \
+        chmod +x /usr/local/bin/railpack; \
+        railpack --version
 
 # Copy only what's needed
 COPY --from=builder /app/public ./public
