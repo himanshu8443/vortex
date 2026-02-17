@@ -22,14 +22,14 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# Push schema to create template database (devDependencies available here)
+ENV DATABASE_URL="file:./template.db.sqlite"
+RUN npx drizzle-kit push --force
+
 # Build Next.js
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV SKIP_ENV_VALIDATION=1
 RUN npm run build
-
-# Push schema to create template database (devDependencies available here)
-ENV DATABASE_URL="file:./template.db.sqlite"
-RUN npx drizzle-kit push --force
 
 # -----------------------------------------------------------------------------
 # 4. Production Runner
