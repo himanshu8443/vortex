@@ -14,15 +14,15 @@ export type EnvVarEntry = {
 	value: string;
 };
 
-export const createRuntimePortEntry = (): RuntimePortEntry => ({
-	id: crypto.randomUUID(),
+export const createRuntimePortEntry = (id: string): RuntimePortEntry => ({
+	id,
 	port: "",
 	domain: "",
 	exposedPort: "",
 });
 
-export const createEnvVarEntry = (): EnvVarEntry => ({
-	id: crypto.randomUUID(),
+export const createEnvVarEntry = (id: string): EnvVarEntry => ({
+	id,
 	key: "",
 	value: "",
 });

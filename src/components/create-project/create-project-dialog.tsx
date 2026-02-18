@@ -45,6 +45,10 @@ export function CreateProjectDialog({
 	const utils = api.useUtils();
 	const [open, setOpen] = React.useState(false);
 	const [stepIndex, setStepIndex] = React.useState(0);
+	const runtimePortIdRef = React.useRef(1);
+	const envVarIdRef = React.useRef(1);
+	const nextRuntimePortId = () => `runtime-port-${runtimePortIdRef.current++}`;
+	const nextEnvVarId = () => `env-var-${envVarIdRef.current++}`;
 
 	// ─── Source state ─────────────────────────────────────────
 	const [projectName, setProjectName] = React.useState("");
@@ -91,14 +95,14 @@ export function CreateProjectDialog({
 
 	// ─── Runtime state ────────────────────────────────────────
 	const [runtimePorts, setRuntimePorts] = React.useState<RuntimePortEntry[]>([
-		{ ...createRuntimePortEntry(), port: "3000" },
+		{ ...createRuntimePortEntry(nextRuntimePortId()), port: "3000" },
 	]);
 	const [cpuLimit, setCpuLimit] = React.useState("0.5");
 	const [memoryLimit, setMemoryLimit] = React.useState("512m");
 
 	// ─── Environment state ────────────────────────────────────
 	const [envVars, setEnvVars] = React.useState<EnvVarEntry[]>([
-		createEnvVarEntry(),
+		createEnvVarEntry(nextEnvVarId()),
 	]);
 	const [formError, setFormError] = React.useState("");
 
@@ -309,7 +313,10 @@ export function CreateProjectDialog({
 
 	// ─── List helpers ─────────────────────────────────────────
 	const addRuntimePort = () =>
-		setRuntimePorts((prev) => [...prev, createRuntimePortEntry()]);
+		setRuntimePorts((prev) => [
+			...prev,
+			createRuntimePortEntry(nextRuntimePortId()),
+		]);
 	const removeRuntimePort = (index: number) =>
 		setRuntimePorts((prev) => prev.filter((_, i) => i !== index));
 	const updateRuntimePort = (
@@ -321,7 +328,8 @@ export function CreateProjectDialog({
 			prev.map((e, i) => (i === index ? { ...e, [field]: value } : e)),
 		);
 
-	const addEnvVar = () => setEnvVars((prev) => [...prev, createEnvVarEntry()]);
+	const addEnvVar = () =>
+		setEnvVars((prev) => [...prev, createEnvVarEntry(nextEnvVarId())]);
 	const removeEnvVar = (index: number) =>
 		setEnvVars((prev) => prev.filter((_, i) => i !== index));
 	const updateEnvVar = (index: number, field: "key" | "value", value: string) =>
