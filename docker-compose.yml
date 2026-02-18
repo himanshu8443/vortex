@@ -52,6 +52,7 @@ services:
       context: .
       dockerfile: dockerfile
     container_name: vortex-dashboard
+    privileged: true
     ports:
       - "8443:3000"
     restart: always
