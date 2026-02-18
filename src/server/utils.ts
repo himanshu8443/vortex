@@ -59,6 +59,20 @@ export function calculateContainerMetrics(
 	};
 }
 
+export function sanitizeUrl(input: string): string | undefined {
+	try {
+		const base = new URL(input).origin.toLowerCase();
+		console.log(`Sanitized URL: ${base} from input: ${input}`);
+		if (base === "null" || base === "undefined") {
+			throw new Error("Invalid URL after sanitization");
+		}
+		return base;
+	} catch (e) {
+		console.error(`URL sanitization failed for input: ${input}`, e);
+		return undefined;
+	}
+}
+
 import { eq } from "drizzle-orm";
 import { App } from "octokit";
 import { db } from "@/server/db";

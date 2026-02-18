@@ -15,10 +15,43 @@ export class DomainService {
 		}
 	}
 
-	async updateDashboardDomain(newDomain: string) {
-		const cleanDomain = newDomain.trim().toLowerCase();
+	async updateDashboardDomain(userInput: string) {
+		// 1. Sanitize & Parse
+		let rawDomain = userInput.trim();
+		let isHttps = false;
 
-		const config = `
+		if (rawDomain.startsWith("https://")) {
+			isHttps = true;
+			rawDomain = rawDomain.replace("https://", "");
+		} else if (rawDomain.startsWith("http://")) {
+			isHttps = false;
+			rawDomain = rawDomain.replace("http://", "");
+		}
+
+		const cleanDomain = (rawDomain.split("/")[0] ?? "").toLowerCase();
+
+		// 2. Build the Config Dynamically
+		let config = "";
+
+		if (isHttps) {
+			config = `
+http:
+  routers:
+    vortex-dashboard-router:
+      rule: "Host(\`${cleanDomain}\`)"
+      service: "vortex-dashboard-service"
+      entryPoints:
+        - "websecure"
+      tls:
+        certResolver: "myresolver" # Matches your docker-compose resolver
+  services:
+    vortex-dashboard-service:
+      loadBalancer:
+        servers:
+          - url: "http://vortex-dashboard:3000"
+`;
+		} else {
+			config = `
 http:
   routers:
     vortex-dashboard-router:
@@ -26,21 +59,15 @@ http:
       service: "vortex-dashboard-service"
       entryPoints:
         - "web"
-        # - "websecure" # Uncomment later for HTTPS
-
   services:
     vortex-dashboard-service:
       loadBalancer:
         servers:
-          # This connects to the internal container name/port
           - url: "http://vortex-dashboard:3000"
 `;
+		}
 
 		const filePath = join(CONFIG_DIR, "dashboard.yml");
 		await writeFile(filePath, config, "utf-8");
-
-		console.log(
-			`Traefik updated! Dashboard is now accessible at http://${cleanDomain}`,
-		);
 	}
 }
