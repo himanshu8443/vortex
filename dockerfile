@@ -44,8 +44,10 @@ RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
     git \
-    docker.io \
     && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-25.0.3.tgz \
+    | tar xz -C /usr/local/bin --strip-components=1 docker/docker
 
 # INSTALL RAILPACK
 ARG RAILPACK_VERSION=v0.17.2
