@@ -34,17 +34,18 @@ RUN npm run build
 # -----------------------------------------------------------------------------
 # 4. Production Runner
 # -----------------------------------------------------------------------------
-FROM node:22-alpine AS runner
+FROM node:22-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
-    docker-cli \
-    git
+    git \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/*
 
 # INSTALL RAILPACK
 ARG RAILPACK_VERSION=v0.17.2
