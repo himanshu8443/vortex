@@ -16,9 +16,9 @@ export const auth = async () => {
 
 	return betterAuth({
 		baseURL: appUrl,
-		trustedOrigins: appUrl ? [appUrl] : ["*"],
+		trustedOrigins: ["*"],
 		advanced: {
-			useSecureCookies: appUrl?.startsWith("https://") ?? false,
+			useSecureCookies: false,
 		},
 		database: drizzleAdapter(db, {
 			provider: "sqlite",
