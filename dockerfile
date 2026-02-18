@@ -43,7 +43,8 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN apk add --no-cache \
     curl \
     ca-certificates \
-    docker-cli
+    docker-cli \
+    git
 
 # INSTALL RAILPACK
 ARG RAILPACK_VERSION=v0.17.2
