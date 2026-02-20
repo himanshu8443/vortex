@@ -345,28 +345,23 @@ class DeploymentService {
 				`\n[build] Running railpack in ${buildContextDir}\n`,
 			);
 
-			const _buildkitHost = await this.ensureLocalBuildkit(deploymentId);
-
-			const railpackCode = await this.runProcess(
-				"railpack",
-				["build", ".", "--progress", "plain", "--name", imageName],
+			const nixpacksCode = await this.runProcess(
+				"nixpacks",
+				["build", ".", "--name", imageName],
 				{
 					cwd: buildContextDir,
-					env: {
-						BUILDKIT_HOST: _buildkitHost,
-					},
 					onData: (chunk) => {
 						void this.appendBuildLog(deploymentId, chunk);
 					},
 				},
 			);
 
-			if (railpackCode !== 0) {
+			if (nixpacksCode !== 0) {
 				await this.appendBuildLog(
 					deploymentId,
-					`\n[railpack] railpack build failed with exit code ${railpackCode}\n`,
+					`\n[nixpacks] build failed with exit code ${nixpacksCode}\n`,
 				);
-				throw new Error(`railpack build failed with exit code ${railpackCode}`);
+				throw new Error(`nixpacks build failed with exit code ${nixpacksCode}`);
 			}
 
 			return { commitHash: resolvedHash, commitMessage: resolvedMessage };
@@ -403,7 +398,6 @@ class DeploymentService {
 			);
 
 			// 3. Run Standard Docker Build
-			// We don't use Railpack here because the user GAVE us the instructions.
 			const buildCode = await this.runProcess(
 				"docker",
 				[
@@ -583,7 +577,11 @@ class DeploymentService {
 			const container = await createContainer({
 				imageName,
 				containerName: this.getContainerName(project.name, deploymentId),
-				ports: portsData.map((p) => ({ port: p.port, domain: p.domain ?? null, exposedPort: p.exposedPort ?? null })),
+				ports: portsData.map((p) => ({
+					port: p.port,
+					domain: p.domain ?? null,
+					exposedPort: p.exposedPort ?? null,
+				})),
 				envVars: project.envVars ? JSON.parse(project.envVars) : undefined,
 			});
 
