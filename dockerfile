@@ -46,22 +46,25 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-25.0.3.tgz \
-    | tar xz -C /usr/local/bin --strip-components=1 docker/docker
+ARG BUILDX_VERSION=v0.13.1
+RUN set -eux; \
+    arch="$(uname -m)"; \
+    case "$arch" in \
+        x86_64) dockerArch="x86_64"; buildxArch="amd64" ;; \
+        aarch64|arm64) dockerArch="aarch64"; buildxArch="arm64" ;; \
+        *) echo "Unsupported architecture: $arch"; exit 1 ;; \
+    esac; \
+    # Install Docker CLI
+    curl -fsSL "https://download.docker.com/linux/static/stable/${dockerArch}/docker-25.0.3.tgz" \
+        | tar xz -C /usr/local/bin --strip-components=1 docker/docker; \
+    # Install Buildx Plugin
+    mkdir -p ~/.docker/cli-plugins; \
+    curl -fsSL "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-${buildxArch}" \
+        -o ~/.docker/cli-plugins/docker-buildx; \
+    chmod +x ~/.docker/cli-plugins/docker-buildx
 
 # INSTALL RAILPACK
-ARG RAILPACK_VERSION=v0.17.2
-RUN set -eux; \
-        arch="$(uname -m)"; \
-        case "$arch" in \
-            x86_64) target="x86_64-unknown-linux-musl" ;; \
-            aarch64|arm64) target="arm64-unknown-linux-musl" ;; \
-            *) echo "Unsupported architecture: $arch"; exit 1 ;; \
-        esac; \
-        curl -fsSL "https://github.com/railwayapp/railpack/releases/download/${RAILPACK_VERSION}/railpack-${RAILPACK_VERSION}-${target}.tar.gz" \
-            | tar -xz -C /usr/local/bin railpack; \
-        chmod +x /usr/local/bin/railpack; \
-        railpack --version
+RUN curl -sSL https://nixpacks.com/install.sh | bash
 
 # Copy only what's needed
 COPY --from=builder /app/public ./public
