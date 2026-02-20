@@ -52,7 +52,6 @@ services:
       context: .
       dockerfile: dockerfile
     container_name: vortex-dashboard
-    privileged: true
     ports:
       - "8443:3000"
     restart: always
@@ -60,7 +59,6 @@ services:
       - DATABASE_URL=file:/app/data/db.sqlite
       - NODE_ENV=production
       - TRAEFIK_CONFIG_DIR=/app/traefik-config
-      - BUILDKIT_HOST=tcp://vortex-buildkit:1234
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ${DATA_DIR:-./data}/db:/app/data
@@ -74,21 +72,6 @@ services:
     dns:
       - 8.8.8.8
       - 1.1.1.1
-      
-  buildkit:
-    image: moby/buildkit:latest
-    container_name: vortex-buildkit
-    restart: always
-    privileged: true
-    command: --addr tcp://0.0.0.0:1234
-    entrypoint:
-      - buildkitd
-    ports:
-      - "1234:1234"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-    networks:
-      - vortex-net
 
 networks:
   vortex-net:
@@ -96,6 +79,4 @@ networks:
     driver: bridge
     driver_opts:
       com.docker.network.bridge.name: vortex-bridge
-
-volumes:
-  vortex-traefik-config:
+      com.docker.network.driver.mtu: "1350"
