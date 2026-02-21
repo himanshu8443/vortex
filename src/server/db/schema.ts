@@ -114,7 +114,7 @@ export const projects = sqliteTable("projects", {
 
 	image: text("image"), // For DOCKER_REGISTRY source
 	repoUrl: text("repo_url"), // For GIT source
-	branch: text("branch").default("main"), // For GIT source
+	branch: text("branch"), // For GIT source
 	rootDirectory: text("root_directory").default("/"), // For monorepos
 
 	// Dockerfile Config

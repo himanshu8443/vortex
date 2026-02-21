@@ -1,16 +1,6 @@
-import {
-	Book,
-	BookKey,
-	BookLock,
-	GitBranch,
-	Github,
-	Loader2,
-	LockIcon,
-	Plus,
-	Terminal,
-} from "lucide-react";
+import { Book, BookLock, Github, Loader2, Plus, Terminal } from "lucide-react";
 import Link from "next/link";
-
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
 import { Input } from "@/components/ui/input";
@@ -23,111 +13,124 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import type { GitBuildMethod, SourceType } from "./types";
+import { api } from "@/trpc/react";
+import {
+	extractGitHubRepoPath,
+	type SourceType,
+	useProjectForm,
+} from "./types";
 
-interface SourceStepProps {
-	projectName: string;
-	onProjectNameChange: (v: string) => void;
-	sourceType: SourceType;
-	onSourceTypeChange: (v: SourceType) => void;
-	repoUrl: string;
-	onRepoUrlChange: (v: string) => void;
-	repoValidationMessage: string;
-	repoValidated: boolean;
-	isValidatingRepo: boolean;
-	onValidateRepo: () => void;
-	gitBuildMethod: GitBuildMethod;
-	onGitBuildMethodChange: (v: GitBuildMethod) => void;
-	dockerfilePathForGit: string;
-	onDockerfilePathForGitChange: (v: string) => void;
-	imageName: string;
-	onImageNameChange: (v: string) => void;
-	imageTag: string;
-	onImageTagChange: (v: string) => void;
-	dockerfilePath: string;
-	onDockerfilePathChange: (v: string) => void;
-	buildContextPath: string;
-	onBuildContextPathChange: (v: string) => void;
-	branches: string[];
-	branch: string;
-	onBranchChange: (v: string) => void;
+export function SourceStep() {
+	const { formData, updateForm, setFormError } = useProjectForm();
+	const {
+		projectName,
+		sourceType,
+		repoUrl,
+		branch,
+		buildContextPath,
+		dockerfilePath,
+		dockerfilePathForGit,
+		gitBuildMethod,
+		imageName,
+		imageTag,
+		selectedGithubAppId,
+	} = formData;
 
-	// GitHub App integration
-	githubApps: { id: string; name: string }[];
-	selectedGithubAppId: string | null;
-	onSelectGithubApp: (id: string | null) => void;
-	githubRepos: {
-		id: number;
-		name: string;
-		full_name: string;
-		html_url: string;
-		default_branch: string;
-		private: boolean;
-	}[];
-	isLoadingRepos: boolean;
-}
+	// Component-local UI states
+	const [isValidatingRepo, setIsValidatingRepo] = useState(false);
+	const [repoValidationMessage, setRepoValidationMessage] = useState("");
+	const [repoValidated, setRepoValidated] = useState(false);
 
-export function SourceStep({
-	projectName,
-	onProjectNameChange,
-	sourceType,
-	onSourceTypeChange,
-	repoUrl,
-	onRepoUrlChange,
-	repoValidationMessage,
-	repoValidated,
-	isValidatingRepo,
-	onValidateRepo,
-	gitBuildMethod,
-	onGitBuildMethodChange,
-	dockerfilePathForGit,
-	onDockerfilePathForGitChange,
-	imageName,
-	onImageNameChange,
-	imageTag,
-	onImageTagChange,
-	dockerfilePath,
-	onDockerfilePathChange,
-	buildContextPath,
-	onBuildContextPathChange,
-	branches,
-	branch,
-	onBranchChange,
+	// Fetch apps
+	const { data: githubApps = [] } = api.github.listApps.useQuery();
 
-	githubApps,
-	selectedGithubAppId,
-	onSelectGithubApp,
-	githubRepos,
-	isLoadingRepos,
-}: SourceStepProps) {
+	// Fetch repos
+	const { data: githubRepos = [], isLoading: isLoadingRepos } =
+		api.github.listRepos.useQuery(
+			{ githubAppId: selectedGithubAppId ?? "" },
+			{
+				enabled: !!selectedGithubAppId && selectedGithubAppId !== "new",
+			},
+		);
+
+	// Fetch branches
+	const { data: fetchedBranches } = api.project.fetchBranches.useQuery(
+		{
+			repoUrl,
+			githubAppId:
+				selectedGithubAppId && selectedGithubAppId !== "new"
+					? selectedGithubAppId
+					: undefined,
+		},
+		{
+			enabled: sourceType === "GIT" && repoUrl.trim().length > 5,
+			staleTime: 60_000,
+		},
+	);
+	useEffect(() => {
+		updateForm({ branch: fetchedBranches?.[0] ?? "" });
+	}, [fetchedBranches, updateForm]);
+
+	const branches = fetchedBranches ?? [];
+
 	// Auto-fill project name when selecting repo from dropdown
 	const handleRepoSelect = (repoFullName: string) => {
 		const repo = githubRepos.find((r) => r.full_name === repoFullName);
 		if (!repo) return;
 
-		onRepoUrlChange(repo.html_url);
-		onBranchChange(repo.default_branch); // Auto-set default branch
+		updateForm({ repoUrl: repo.html_url, branch: repo.default_branch });
 
 		// Auto-set project name if empty
 		if (!projectName) {
-			onProjectNameChange(repo.name);
+			updateForm({ projectName: repo.name });
 		}
+	};
+
+	const validateRepository = async () => {
+		setFormError("");
+		setRepoValidationMessage("");
+		setRepoValidated(false);
+		const repoPath = extractGitHubRepoPath(repoUrl);
+		if (!repoPath) {
+			setRepoValidationMessage(
+				"Use a valid GitHub URL, e.g. https://github.com/org/repo",
+			);
+			return;
+		}
+		setIsValidatingRepo(true);
+		try {
+			const response = await fetch(`https://api.github.com/repos/${repoPath}`);
+			if (!response.ok) {
+				setRepoValidationMessage("Repository not found or not accessible");
+				return;
+			}
+			setRepoValidated(true);
+			setRepoValidationMessage("Repository validated successfully");
+		} catch {
+			setRepoValidationMessage("Failed to validate repository. Try again.");
+		} finally {
+			setIsValidatingRepo(false);
+		}
+	};
+
+	const handleSelectGithubApp = (id: string | null) => {
+		updateForm({ selectedGithubAppId: id });
 	};
 
 	return (
 		<GlassCard className="space-y-4 rounded-lg border border-border/50 bg-card/20 p-4">
 			<div className="space-y-2">
-				<Label>Project Name</Label>
+				<Label className="font-medium text-sm">Project Name</Label>
 				<Input
 					className="bg-muted/20"
-					onChange={(e) => onProjectNameChange(e.target.value)}
+					onChange={(e) => updateForm({ projectName: e.target.value })}
 					placeholder="my-awesome-app"
 					value={projectName}
 				/>
 			</div>
 
 			<div className="space-y-2">
-				<Label>Select Source Type</Label>
+				<Label className="font-medium text-sm">Select Source Type</Label>
 				<div className="grid gap-3 md:grid-cols-3">
 					{[
 						{ key: "GIT", label: "Git Repository" },
@@ -142,7 +145,9 @@ export function SourceStep({
 									: "opacity-80 hover:opacity-100",
 							)}
 							key={option.key}
-							onClick={() => onSourceTypeChange(option.key as SourceType)}
+							onClick={() =>
+								updateForm({ sourceType: option.key as SourceType })
+							}
 							type="button"
 						>
 							<div className="font-medium text-sm transition-colors group-hover:text-primary">
@@ -166,10 +171,10 @@ export function SourceStep({
 
 			{/* ─── GIT Source Fields ──────────────── */}
 			{sourceType === "GIT" && (
-				<div className="space-y-3 rounded-lg border border-border/60 bg-card/20 p-3 shadow-sm">
+				<div className="space-y-4 rounded-lg border border-border/60 bg-card/20 p-4 shadow-sm">
 					{/* Source Selection Mode: Manual vs GitHub App */}
-					<div className="space-y-3">
-						<Label>Source Origin</Label>
+					<div className="space-y-2">
+						<Label className="font-medium text-sm">Source Origin</Label>
 						<div className="grid grid-cols-2 gap-3">
 							<button
 								className={cn(
@@ -178,7 +183,7 @@ export function SourceStep({
 										? "border-primary/50 bg-primary/5 shadow-primary/10 ring-1 ring-primary/20"
 										: "opacity-80 hover:opacity-100",
 								)}
-								onClick={() => onSelectGithubApp(null)}
+								onClick={() => handleSelectGithubApp(null)}
 								type="button"
 							>
 								<div className="flex items-center gap-2 font-medium text-sm transition-colors group-hover:text-primary">
@@ -209,7 +214,9 @@ export function SourceStep({
 										? "border-primary/50 bg-primary/5 shadow-primary/10 ring-1 ring-primary/20"
 										: "opacity-80 hover:opacity-100",
 								)}
-								onClick={() => onSelectGithubApp(githubApps[0]?.id ?? "new")}
+								onClick={() =>
+									handleSelectGithubApp(githubApps[0]?.id ?? "new")
+								}
 								type="button"
 							>
 								<div className="flex items-center gap-2 font-medium text-sm transition-colors group-hover:text-primary">
@@ -239,18 +246,18 @@ export function SourceStep({
 					{/* Manual input */}
 					{!selectedGithubAppId && (
 						<div className="fade-in zoom-in-95 animate-in space-y-2 duration-200">
-							<Label>Repository URL</Label>
+							<Label className="font-medium text-sm">Repository URL</Label>
 							<div className="flex items-center gap-2">
 								<Input
 									className="bg-muted/20"
-									onChange={(e) => onRepoUrlChange(e.target.value)}
+									onChange={(e) => updateForm({ repoUrl: e.target.value })}
 									placeholder="https://github.com/org/repo"
 									value={repoUrl}
 								/>
 								<Button
 									className="shrink-0"
 									disabled={!repoUrl.trim() || isValidatingRepo}
-									onClick={onValidateRepo}
+									onClick={validateRepository}
 									type="button"
 									variant="outline"
 								>
@@ -267,7 +274,7 @@ export function SourceStep({
 							{repoValidationMessage && (
 								<span
 									className={cn(
-										"text-xs",
+										"mt-1 block text-xs",
 										repoValidated ? "text-primary" : "text-destructive",
 									)}
 								>
@@ -304,14 +311,16 @@ export function SourceStep({
 								/* Case 2: Apps Connected */
 								<>
 									<div className="space-y-2">
-										<Label>GitHub Account</Label>
+										<Label className="font-medium text-sm">
+											GitHub Account
+										</Label>
 										<Select
 											onValueChange={(val) => {
 												if (val === "new") {
 													window.open("/settings", "_blank");
 													return;
 												}
-												onSelectGithubApp(val);
+												handleSelectGithubApp(val);
 											}}
 											value={selectedGithubAppId}
 										>
@@ -335,7 +344,7 @@ export function SourceStep({
 									</div>
 
 									<div className="space-y-2">
-										<Label>Repository</Label>
+										<Label className="font-medium text-sm">Repository</Label>
 										<Select
 											disabled={isLoadingRepos}
 											onValueChange={handleRepoSelect}
@@ -363,9 +372,9 @@ export function SourceStep({
 														<SelectItem key={repo.id} value={repo.full_name}>
 															<span className="flex items-center gap-2">
 																{repo.private ? (
-																	<BookLock className="h-3 w-3" />
+																	<BookLock className="h-4 w-4 text-muted-foreground" />
 																) : (
-																	<Book className="h-3 w-3" />
+																	<Book className="h-4 w-4 text-muted-foreground" />
 																)}
 																{repo.full_name}
 															</span>
@@ -382,9 +391,12 @@ export function SourceStep({
 
 					{/* Branch selection */}
 					<div className="space-y-2">
-						<Label>Branch</Label>
+						<Label className="font-medium text-sm">Branch</Label>
 						{branches.length > 0 ? (
-							<Select onValueChange={onBranchChange} value={branch}>
+							<Select
+								onValueChange={(b) => updateForm({ branch: b })}
+								value={branch}
+							>
 								<SelectTrigger className="w-full bg-muted/20 font-mono text-sm">
 									<SelectValue placeholder="Select branch" />
 								</SelectTrigger>
@@ -399,7 +411,7 @@ export function SourceStep({
 						) : (
 							<Input
 								className="bg-muted/20 font-mono text-sm"
-								onChange={(e) => onBranchChange(e.target.value)}
+								onChange={(e) => updateForm({ branch: e.target.value })}
 								placeholder="main"
 								value={branch}
 							/>
@@ -407,17 +419,17 @@ export function SourceStep({
 					</div>
 
 					{/* Build Method */}
-					<div className="space-y-2 pt-1">
-						<Label>Build Method</Label>
+					<div className="space-y-2 border-border/50 border-t pt-2">
+						<Label className="font-medium text-sm">Build Method</Label>
 						<div className="grid gap-3 md:grid-cols-2">
 							<button
 								className={cn(
-									"group relative overflow-hidden rounded-md border border-border/60 bg-card/20 p-2.5 text-left shadow-sm transition-all duration-300 hover:border-primary/30 hover:bg-muted/30 hover:shadow-md",
+									"group relative overflow-hidden rounded-md border border-border/60 bg-card/20 p-3 text-left shadow-sm transition-all duration-300 hover:border-primary/30 hover:bg-muted/30 hover:shadow-md",
 									gitBuildMethod === "NIXPACKS"
 										? "border-primary/50 bg-primary/5 shadow-primary/10 ring-1 ring-primary/20"
 										: "opacity-80 hover:opacity-100",
 								)}
-								onClick={() => onGitBuildMethodChange("NIXPACKS")}
+								onClick={() => updateForm({ gitBuildMethod: "NIXPACKS" })}
 								type="button"
 							>
 								<div className="font-medium text-sm transition-colors group-hover:text-primary">
@@ -437,12 +449,14 @@ export function SourceStep({
 							</button>
 							<button
 								className={cn(
-									"group relative overflow-hidden rounded-lg border border-border/60 bg-card/20 p-2.5 text-left shadow-sm transition-all duration-300 hover:border-primary/30 hover:bg-muted/30 hover:shadow-md",
+									"group relative overflow-hidden rounded-lg border border-border/60 bg-card/20 p-3 text-left shadow-sm transition-all duration-300 hover:border-primary/30 hover:bg-muted/30 hover:shadow-md",
 									gitBuildMethod === "DOCKERFILE_PATH"
 										? "border-primary/50 bg-primary/5 shadow-primary/10 ring-1 ring-primary/20"
 										: "opacity-80 hover:opacity-100",
 								)}
-								onClick={() => onGitBuildMethodChange("DOCKERFILE_PATH")}
+								onClick={() =>
+									updateForm({ gitBuildMethod: "DOCKERFILE_PATH" })
+								}
 								type="button"
 							>
 								<div className="font-medium text-sm transition-colors group-hover:text-primary">
@@ -462,12 +476,16 @@ export function SourceStep({
 							</button>
 						</div>
 						{gitBuildMethod === "DOCKERFILE_PATH" && (
-							<Input
-								className="bg-muted/20"
-								onChange={(e) => onDockerfilePathForGitChange(e.target.value)}
-								placeholder="/Dockerfile"
-								value={dockerfilePathForGit}
-							/>
+							<div className="fade-in zoom-in-95 animate-in pt-2 duration-200">
+								<Input
+									className="bg-muted/20"
+									onChange={(e) =>
+										updateForm({ dockerfilePathForGit: e.target.value })
+									}
+									placeholder="/Dockerfile"
+									value={dockerfilePathForGit}
+								/>
+							</div>
 						)}
 					</div>
 				</div>
@@ -475,21 +493,21 @@ export function SourceStep({
 
 			{/* ─── Docker Image Fields ───────────── */}
 			{sourceType === "DOCKER_IMAGE" && (
-				<div className="grid gap-3 rounded-lg border border-border/60 bg-card/20 p-3 shadow-sm md:grid-cols-2">
+				<div className="grid gap-4 rounded-lg border border-border/60 bg-card/20 p-4 shadow-sm md:grid-cols-2">
 					<div className="space-y-2">
-						<Label>Image Name</Label>
+						<Label className="font-medium text-sm">Image Name</Label>
 						<Input
 							className="bg-muted/20"
-							onChange={(e) => onImageNameChange(e.target.value)}
+							onChange={(e) => updateForm({ imageName: e.target.value })}
 							placeholder="nginx"
 							value={imageName}
 						/>
 					</div>
 					<div className="space-y-2">
-						<Label>Image Tag</Label>
+						<Label className="font-medium text-sm">Image Tag</Label>
 						<Input
 							className="bg-muted/20"
-							onChange={(e) => onImageTagChange(e.target.value)}
+							onChange={(e) => updateForm({ imageTag: e.target.value })}
 							placeholder="latest"
 							value={imageTag}
 						/>
@@ -499,21 +517,23 @@ export function SourceStep({
 
 			{/* ─── Standalone Dockerfile Fields ──── */}
 			{sourceType === "DOCKERFILE" && (
-				<div className="grid gap-3 rounded-lg border border-border/60 bg-card/20 p-3 shadow-sm md:grid-cols-2">
+				<div className="grid gap-4 rounded-lg border border-border/60 bg-card/20 p-4 shadow-sm md:grid-cols-2">
 					<div className="space-y-2">
-						<Label>Dockerfile Path</Label>
+						<Label className="font-medium text-sm">Dockerfile Path</Label>
 						<Input
 							className="bg-muted/20"
-							onChange={(e) => onDockerfilePathChange(e.target.value)}
+							onChange={(e) => updateForm({ dockerfilePath: e.target.value })}
 							placeholder="/Dockerfile"
 							value={dockerfilePath}
 						/>
 					</div>
 					<div className="space-y-2">
-						<Label>Build Context Path (optional)</Label>
+						<Label className="font-medium text-sm">
+							Build Context Path (optional)
+						</Label>
 						<Input
 							className="bg-muted/20"
-							onChange={(e) => onBuildContextPathChange(e.target.value)}
+							onChange={(e) => updateForm({ buildContextPath: e.target.value })}
 							placeholder="/"
 							value={buildContextPath}
 						/>

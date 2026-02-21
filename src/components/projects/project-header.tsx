@@ -11,7 +11,7 @@ interface ProjectHeaderProps {
 	branch: string;
 	status: "online" | "building" | "offline";
 	lastUpdated: string;
-	domain: string;
+	domains?: string[];
 	onRedeploy: () => void;
 	onRestart: () => void;
 	isRedeploying?: boolean;
@@ -36,7 +36,7 @@ export function ProjectHeader({
 	branch,
 	status,
 	lastUpdated,
-	domain,
+	domains,
 	onRedeploy,
 	onRestart,
 	isRedeploying = false,
@@ -69,14 +69,15 @@ export function ProjectHeader({
 					<div className="flex flex-col gap-1">
 						<h1 className="font-bold text-2xl tracking-tight">{projectName}</h1>
 						<div className="flex items-center gap-2 text-muted-foreground text-sm">
-							<a
-								className="transition-colors hover:text-primary hover:underline"
-								href={`http://${domain}`}
-								rel="noreferrer"
-								target="_blank"
-							>
-								{domain}
-							</a>
+							{domains?.map((domain) => (
+								<a
+									className="transition-colors hover:text-primary hover:underline"
+									href={domain}
+									target="_blank"
+								>
+									{domain}
+								</a>
+							))}
 							<span className="h-1 w-1 rounded-full bg-border" />
 							<div className="flex items-center gap-1">
 								<GitBranch className="h-3 w-3" />
@@ -114,14 +115,6 @@ export function ProjectHeader({
 						variant="outline"
 					>
 						{isRedeploying ? "Redeploying..." : "Redeploy"}
-					</Button>
-					<Button
-						className="hidden border-border/50 md:flex"
-						onClick={() => window.open(`http://${domain}`, "_blank")}
-						size="sm"
-						variant="outline"
-					>
-						Visit App
 					</Button>
 				</div>
 			</div>

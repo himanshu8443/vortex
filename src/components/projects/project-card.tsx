@@ -78,12 +78,9 @@ export function ProjectCard({ project }: { project: Project }) {
 						{getIcon(project.type)}
 					</div>
 					<div className="min-w-0">
-						<CardTitle className="font-medium text-base">
+						<CardTitle className="font-medium text-lg">
 							{project.name}
 						</CardTitle>
-						<div className="max-w-[180px] truncate text-muted-foreground text-sm">
-							{project.domain}
-						</div>
 					</div>
 				</div>
 				<div
@@ -91,6 +88,9 @@ export function ProjectCard({ project }: { project: Project }) {
 						"h-2.5 w-2.5 shrink-0 rounded-full",
 						getStatusColor(project.status),
 					)}
+					title={
+						project.status.charAt(0).toUpperCase() + project.status.slice(1)
+					}
 				/>
 			</CardHeader>
 			<CardContent className="space-y-4 pt-4">
@@ -99,9 +99,14 @@ export function ProjectCard({ project }: { project: Project }) {
 						<GitBranch className="mr-1 h-3.5 w-3.5 shrink-0" />
 						<span className="truncate font-mono text-xs">{shortRepo}</span>
 					</div>
-					<Badge className="ml-2 shrink-0 font-mono text-xs" variant="secondary">
-						{project.branch}
-					</Badge>
+					{project.branch && (
+						<Badge
+							className="ml-2 shrink-0 font-mono text-xs"
+							variant="secondary"
+						>
+							{project.branch}
+						</Badge>
+					)}
 				</div>
 
 				<div className="grid grid-cols-2 gap-4">

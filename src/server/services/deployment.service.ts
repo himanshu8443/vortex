@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/server/db";
 import { deployments, projectPorts, projects } from "@/server/db/schema";
 import { eventBus } from "@/server/event-bus";
@@ -33,6 +33,29 @@ class DeploymentService {
 
 		this.project = project;
 		return project;
+	}
+
+	static async recoverStuckDeployments() {
+		console.log("Cleaning up stuck/zombie deployments from previous runs...");
+		const stuckDeployments = await db
+			.update(deployments)
+			.set({ status: "FAILED", endedAt: new Date() })
+			.where(inArray(deployments.status, ["BUILDING", "QUEUED"]))
+			.returning();
+
+		for (const dep of stuckDeployments) {
+			await db
+				.update(deployments)
+				.set({
+					buildLogs: sql`coalesce(${deployments.buildLogs}, '') || '\n❌ Deployment interrupted by server restart.\n'`,
+				})
+				.where(eq(deployments.id, dep.id));
+
+			await db
+				.update(projects)
+				.set({ status: "FAILED" })
+				.where(eq(projects.id, dep.projectId));
+		}
 	}
 
 	getProject(): Project | null {
@@ -107,80 +130,6 @@ class DeploymentService {
 
 	private getContainerName(projectName: string, deploymentId: string): string {
 		return `vortex-${projectName}-${deploymentId}`;
-	}
-
-	private async ensureLocalBuildkit(deploymentId: string): Promise<string> {
-		// 1. If Production (Env var is set), just use it.
-		if (process.env.BUILDKIT_HOST) {
-			return process.env.BUILDKIT_HOST;
-		}
-
-		// 2. If Local Dev, we must ensure the container exists.
-		const containerName = "vortex-buildkit";
-		const port = "1234";
-
-		try {
-			// Check if it's already running
-			const containers = await docker.listContainers({
-				all: true,
-				filters: { name: [containerName] },
-			});
-
-			const existing = containers[0];
-
-			if (existing) {
-				if (existing.State === "running") {
-					// It's running, just use it
-					return `tcp://127.0.0.1:${port}`;
-				} else {
-					// It exists but stopped, start it
-					await this.appendBuildLog(
-						deploymentId,
-						`[buildkit] Starting existing BuildKit daemon...\n`,
-					);
-					await docker.getContainer(existing.Id).start();
-					await new Promise((r) => setTimeout(r, 2000)); // Give it 2s to wake up
-					return `tcp://127.0.0.1:${port}`;
-				}
-			}
-
-			// 3. Not found? Create it.
-			await this.appendBuildLog(
-				deploymentId,
-				`[buildkit] Spawning new BuildKit daemon (vortex-buildkit)...\n`,
-			);
-
-			// Pull image first (silent)
-			await docker.pull("moby/buildkit:latest");
-
-			const container = await docker.createContainer({
-				Image: "moby/buildkit:latest",
-				name: containerName,
-				ExposedPorts: { "1234/tcp": {} },
-				HostConfig: {
-					Privileged: true, // Required for BuildKit
-					PortBindings: { "1234/tcp": [{ HostPort: port }] },
-					RestartPolicy: { Name: "unless-stopped" },
-				},
-				Cmd: ["--addr", "tcp://0.0.0.0:1234"],
-			});
-
-			await container.start();
-			await this.appendBuildLog(
-				deploymentId,
-				`[buildkit] Daemon started on port ${port}.\n`,
-			);
-
-			// Wait for boot
-			await new Promise((r) => setTimeout(r, 3000));
-
-			return `tcp://127.0.0.1:${port}`;
-		} catch (error) {
-			console.error("Failed to ensure local buildkit:", error);
-			throw new Error(
-				"Could not start local BuildKit daemon. Make sure Docker Desktop is running.",
-			);
-		}
 	}
 
 	private async buildFromGitWithRailpack(

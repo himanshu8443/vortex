@@ -28,7 +28,13 @@ export function LogsTab({
 	const [lines, setLines] = React.useState<string[]>([]);
 	const [runtimeFailed, setRuntimeFailed] = React.useState(false);
 	const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
-	const bottomRef = React.useRef<HTMLDivElement | null>(null);
+	const scrollRef = React.useRef<HTMLDivElement | null>(null);
+
+	const scrollToBottom = React.useCallback(() => {
+		if (scrollRef.current) {
+			scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+		}
+	}, []);
 
 	// Project is "building" if its status is anything other than RUNNING
 	// (IDLE, STARTING, DEPLOYING, FAILED — none of these have a live container)
@@ -59,15 +65,16 @@ export function LogsTab({
 		}
 	}, [activeSource]);
 
+	React.useEffect(() => {
+		scrollToBottom();
+	}, [lines, scrollToBottom]);
+
 	api.logs.streamProjectLogs.useSubscription(
 		{ projectId },
 		{
 			enabled: shouldFetchContainerLogs,
 			onData: (chunk) => {
 				setLines((prev) => appendChunk(prev, chunk));
-				queueMicrotask(() => {
-					bottomRef.current?.scrollIntoView({ behavior: "auto" });
-				});
 			},
 			onError: (error) => {
 				setRuntimeFailed(true);
@@ -82,9 +89,6 @@ export function LogsTab({
 			enabled: shouldFetchDeploymentLogs,
 			onData: (chunk) => {
 				setLines((prev) => appendChunk(prev, chunk));
-				queueMicrotask(() => {
-					bottomRef.current?.scrollIntoView({ behavior: "auto" });
-				});
 			},
 			onError: (error) => {
 				setErrorMessage(error.message);
@@ -116,7 +120,7 @@ export function LogsTab({
 					</Button>
 				</div>
 
-				<div className="h-[52vh] overflow-y-auto bg-black px-3 py-2 font-mono text-green-400 text-xs leading-5">
+				<div ref={scrollRef} className="h-[52vh] overflow-y-auto bg-black px-3 py-2 font-mono text-green-400 text-xs leading-5">
 					{lines.length === 0 ? (
 						<div className="text-muted-foreground">Waiting for logs...</div>
 					) : (
@@ -126,7 +130,6 @@ export function LogsTab({
 							</div>
 						))
 					)}
-					<div ref={bottomRef} />
 				</div>
 			</GlassCard>
 

@@ -1,32 +1,33 @@
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
 interface CommandToggleProps {
-	label: string;
-	placeholder: string;
 	enabled: boolean;
+	label: string;
+	onToggle: (v: boolean) => void;
 	value: string;
-	onToggle: (checked: boolean) => void;
-	onValueChange: (val: string) => void;
+	onValueChange: (v: string) => void;
+	placeholder: string;
 }
 
 export function CommandToggle({
-	label,
-	placeholder,
 	enabled,
-	value,
+	label,
 	onToggle,
+	value,
 	onValueChange,
+	placeholder,
 }: CommandToggleProps) {
 	return (
-		<div className="space-y-2">
-			<div className="flex items-center justify-between rounded-lg border border-border/60 p-3">
-				<div className="font-medium text-sm">{label}</div>
+		<div className="space-y-3 rounded-lg border border-border/60 bg-card/20 p-4 shadow-sm">
+			<div className="flex items-center justify-between">
+				<Label className="font-medium text-sm">{label}</Label>
 				<Switch checked={enabled} onCheckedChange={onToggle} />
 			</div>
 			{enabled && (
 				<Input
-					className="font-mono text-sm"
+					className="fade-in zoom-in-95 animate-in bg-muted/20 duration-200"
 					onChange={(e) => onValueChange(e.target.value)}
 					placeholder={placeholder}
 					value={value}

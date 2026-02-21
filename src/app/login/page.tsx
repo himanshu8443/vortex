@@ -1,7 +1,6 @@
 "use client";
 
 import { ArrowRight, KeyRound, Loader2, Lock, Mail } from "lucide-react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -46,7 +45,7 @@ export default function AuthPage() {
 				},
 				{
 					onSuccess: () => {
-						router.push("/");
+						window.location.href = "/";
 					},
 					onError: (ctx) => {
 						setError(ctx.error.message);

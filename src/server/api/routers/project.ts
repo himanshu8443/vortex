@@ -175,6 +175,28 @@ export const projectRouter = createTRPCRouter({
 				startCommand: z.string().nullable().optional(),
 				cpuLimit: z.string().optional(),
 				memoryLimit: z.string().optional(),
+				buildType: z.enum(["DOCKERFILE", "COMPOSE", "NIXPACKS"]).optional(),
+				name: z.string().min(1).optional(),
+				portsData: z.array(
+					z.object({
+						port: z.number().int().min(1).max(65535),
+						domain: z.string().url().optional().nullable(),
+						exposedPort: z
+							.string()
+							.refine(
+								(val) => {
+									if (!val) return true; // Optional
+									const port = parseInt(val, 10);
+									return port >= 1 && port <= 65535;
+								},
+								{
+									message: "Must be a valid port number (1-65535)",
+								},
+							)
+							.optional()
+							.nullable(),
+					}),
+				).optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -207,15 +229,38 @@ export const projectRouter = createTRPCRouter({
 			if (updates.cpuLimit !== undefined) setValues.cpuLimit = updates.cpuLimit;
 			if (updates.memoryLimit !== undefined)
 				setValues.memoryLimit = updates.memoryLimit;
+			if (updates.buildType !== undefined)
+				setValues.buildType = updates.buildType;
+			if (updates.name !== undefined)
+				setValues.name = updates.name;
 
-			if (Object.keys(setValues).length === 0) {
-				return { success: true };
+			if (Object.keys(setValues).length > 0) {
+				await ctx.db
+					.update(projects)
+					.set(setValues)
+					.where(eq(projects.id, projectId));
 			}
 
-			await ctx.db
-				.update(projects)
-				.set(setValues)
-				.where(eq(projects.id, projectId));
+			if (updates.portsData !== undefined) {
+				await ctx.db
+					.delete(projectPorts)
+					.where(eq(projectPorts.projectId, projectId));
+				
+				if (updates.portsData.length > 0) {
+					await ctx.db
+						.insert(projectPorts)
+						.values(
+							updates.portsData.map((portData) => ({
+								projectId,
+								port: portData.port,
+								domain: portData.domain,
+								exposedPort: portData.exposedPort
+									? parseInt(portData.exposedPort, 10)
+									: null,
+							}))
+						);
+				}
+			}
 
 			return { success: true };
 		}),

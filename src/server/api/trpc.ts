@@ -25,10 +25,11 @@ import { db } from "@/server/db";
  * @see https://trpc.io/docs/server/context
  */
 export const createTRPCContext = async (opts: { headers: Headers }) => {
-	const betterAuth = await auth()
+	const betterAuth = await auth();
 	const session = await betterAuth.api.getSession({
 		headers: opts.headers,
 	});
+	console.log("Session:", session);
 	return {
 		db,
 		session: session,
@@ -48,8 +49,19 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
 const t = initTRPC.context<typeof createTRPCContext>().create({
 	transformer: superjson,
 	errorFormatter({ shape, error }) {
+		let message = shape.message;
+		if (error.cause instanceof ZodError) {
+			const firstError = error.cause.errors[0];
+			if (firstError) {
+				const path =
+					firstError.path.length > 0 ? `${firstError.path.join(".")} - ` : "";
+				message = `${path}${firstError.message}`;
+			}
+		}
+
 		return {
 			...shape,
+			message,
 			data: {
 				...shape.data,
 				zodError:

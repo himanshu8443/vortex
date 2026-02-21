@@ -1,3 +1,4 @@
+import { useMemo, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,95 +9,136 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import type { RuntimePortEntry } from "./types";
+import {
+	getAvailableCpuOptions,
+	getAvailableMemoryOptions,
+} from "@/lib/resource-options";
+import { api } from "@/trpc/react";
+import {
+	createRuntimePortEntry,
+	type RuntimePortEntry,
+	useProjectForm,
+} from "./types";
 
-interface RuntimeStepProps {
-	runtimePorts: RuntimePortEntry[];
-	onAddPort: () => void;
-	onRemovePort: (index: number) => void;
-	onUpdatePort: (
+export function RuntimeStep() {
+	const { formData, updateForm } = useProjectForm();
+	const { runtimePorts, cpuLimit, memoryLimit } = formData;
+
+	const runtimePortIdRef = useRef(Date.now());
+	const nextRuntimePortId = () => `runtime-port-${runtimePortIdRef.current++}`;
+
+	// Fetch host resources to propose proper cpu/ram options
+	const { data: hostResources } = api.project.getHostResources.useQuery(
+		undefined,
+		{ staleTime: 60_000 },
+	);
+
+	const cpuOptions = useMemo(
+		() => getAvailableCpuOptions(hostResources?.cpuCount ?? 1),
+		[hostResources?.cpuCount],
+	);
+	const memoryOptions = useMemo(
+		() =>
+			getAvailableMemoryOptions(
+				hostResources?.totalMemoryBytes ?? 512 * 1024 * 1024,
+			),
+		[hostResources?.totalMemoryBytes],
+	);
+
+	const addPort = () => {
+		updateForm({
+			runtimePorts: [
+				...runtimePorts,
+				createRuntimePortEntry(nextRuntimePortId()),
+			],
+		});
+	};
+
+	const removePort = (index: number) => {
+		updateForm({ runtimePorts: runtimePorts.filter((_, i) => i !== index) });
+	};
+
+	const updatePort = (
 		index: number,
 		field: "port" | "domain" | "exposedPort",
 		value: string,
-	) => void;
-	cpuLimit: string;
-	onCpuLimitChange: (v: string) => void;
-	memoryLimit: string;
-	onMemoryLimitChange: (v: string) => void;
-	cpuOptions: { value: string; label: string }[];
-	memoryOptions: { value: string; label: string }[];
-}
+	) => {
+		const newPorts = [...runtimePorts];
+		newPorts[index] = {
+			...newPorts[index],
+			[field]: value,
+		} as RuntimePortEntry;
+		updateForm({ runtimePorts: newPorts });
+	};
 
-export function RuntimeStep({
-	runtimePorts,
-	onAddPort,
-	onRemovePort,
-	onUpdatePort,
-	cpuLimit,
-	onCpuLimitChange,
-	memoryLimit,
-	onMemoryLimitChange,
-	cpuOptions,
-	memoryOptions,
-}: RuntimeStepProps) {
 	return (
-		<div className="space-y-4">
+		<div className="space-y-6">
 			{/* Ports */}
-			<div className="space-y-3">
-				<Label>Ports & Domains</Label>
+			<div className="space-y-4 rounded-lg border border-border/60 bg-card/20 p-4 shadow-sm">
+				<div className="flex items-center justify-between">
+					<Label className="font-medium">Ports & Domains</Label>
+					<Button onClick={addPort} size="sm" type="button" variant="secondary">
+						Add Port
+					</Button>
+				</div>
 				<div className="space-y-2 text-muted-foreground text-xs">
-					<div className="grid gap-2 md:grid-cols-[120px_1fr_120px_auto]">
+					<div className="grid gap-2 md:grid-cols-[120px_1fr_130px_90px]">
 						<div className="font-medium">Container Port</div>
 						<div className="font-medium">Domain</div>
 						<div className="font-medium">Exposed Port</div>
-						<div></div>
+						<div className="w-[90px]"></div>
 					</div>
 				</div>
-				{runtimePorts.map((entry, index) => (
-					<div
-						className="grid gap-2 md:grid-cols-[120px_1fr_120px_auto]"
-						key={entry.id}
-					>
-						<Input
-							onChange={(e) => onUpdatePort(index, "port", e.target.value)}
-							placeholder="8080"
-							value={entry.port}
-						/>
-						<Input
-							onChange={(e) => onUpdatePort(index, "domain", e.target.value)}
-							placeholder="Optional domain"
-							value={entry.domain}
-						/>
-						<Input
-							onChange={(e) =>
-								onUpdatePort(index, "exposedPort", e.target.value)
-							}
-							placeholder="Optional port to expose on host"
-							value={entry.exposedPort}
-						/>
-						<Button
-							disabled={runtimePorts.length === 1}
-							onClick={() => onRemovePort(index)}
-							type="button"
-							variant="outline"
+				<div className="space-y-3">
+					{runtimePorts.map((entry, index) => (
+						<div
+							className="fade-in zoom-in-95 grid animate-in gap-2 duration-200 md:grid-cols-[120px_1fr_130px_90px]"
+							key={entry.id}
 						>
-							Remove
-						</Button>
-					</div>
-				))}
-				<Button onClick={onAddPort} type="button" variant="secondary">
-					Add Port
-				</Button>
+							<Input
+								className="bg-muted/20"
+								onChange={(e) => updatePort(index, "port", e.target.value)}
+								placeholder="3000"
+								value={entry.port}
+							/>
+							<Input
+								className="bg-muted/20"
+								onChange={(e) => updatePort(index, "domain", e.target.value)}
+								placeholder="https://app.example.com (Optional)"
+								value={entry.domain}
+							/>
+							<Input
+								className="bg-muted/20"
+								onChange={(e) =>
+									updatePort(index, "exposedPort", e.target.value)
+								}
+								placeholder="Optional"
+								value={entry.exposedPort}
+							/>
+							<Button
+								className="hover:bg-destructive/10 hover:text-destructive"
+								onClick={() => removePort(index)}
+								type="button"
+								variant="outline"
+							>
+								Remove
+							</Button>
+						</div>
+					))}
+				</div>
 			</div>
 
 			{/* Resource Limits */}
-			<div className="space-y-3">
-				<Label>Resource Limits</Label>
+			<div className="space-y-4 rounded-lg border border-border/60 bg-card/20 p-4 shadow-sm">
+				<Label className="font-medium">Resource Limits</Label>
 				<div className="grid gap-4 md:grid-cols-2">
 					<div className="space-y-2">
 						<Label className="text-muted-foreground text-xs">CPU Limit</Label>
-						<Select onValueChange={onCpuLimitChange} value={cpuLimit}>
-							<SelectTrigger className="w-full font-mono text-sm">
+						<Select
+							onValueChange={(v) => updateForm({ cpuLimit: v })}
+							value={cpuLimit}
+						>
+							<SelectTrigger className="w-full bg-muted/20 font-mono text-sm">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
@@ -112,8 +154,11 @@ export function RuntimeStep({
 						<Label className="text-muted-foreground text-xs">
 							Memory Limit
 						</Label>
-						<Select onValueChange={onMemoryLimitChange} value={memoryLimit}>
-							<SelectTrigger className="w-full font-mono text-sm">
+						<Select
+							onValueChange={(v) => updateForm({ memoryLimit: v })}
+							value={memoryLimit}
+						>
+							<SelectTrigger className="w-full bg-muted/20 font-mono text-sm">
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>

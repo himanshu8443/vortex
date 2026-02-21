@@ -1,10 +1,25 @@
 "use client";
 
+import {
+	createRuntimePortEntry,
+	type RuntimePortEntry,
+} from "@/components/create-project/types";
 import type { inferRouterOutputs } from "@trpc/server";
-import { Box, GitBranch, Rocket, Terminal, X } from "lucide-react";
+import { Box, GitBranch, GlobeIcon, Rocket, Terminal, X } from "lucide-react";
 import * as React from "react";
+import {
+	CartesianGrid,
+	Line,
+	LineChart,
+	ResponsiveContainer,
+	Tooltip,
+	XAxis,
+	YAxis,
+} from "recharts";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
+import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,8 +29,8 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { Switch } from "@/components/ui/switch";
 import {
 	getAvailableCpuOptions,
 	getAvailableMemoryOptions,
@@ -33,6 +48,7 @@ interface SettingsTabProps {
 
 // The shape of editable fields we track
 interface FormState {
+	name: string;
 	repoUrl: string;
 	branch: string;
 	rootDirectory: string;
@@ -42,10 +58,13 @@ interface FormState {
 	startCommand: string | null;
 	cpuLimit: string;
 	memoryLimit: string;
+	buildType: string;
+	runtimePorts: RuntimePortEntry[];
 }
 
 function getInitialForm(project: ProjectData): FormState {
 	return {
+		name: project.name ?? "",
 		repoUrl: project.repoUrl ?? "",
 		branch: project.branch ?? "main",
 		rootDirectory: project.rootDirectory ?? "/",
@@ -55,11 +74,22 @@ function getInitialForm(project: ProjectData): FormState {
 		startCommand: project.startCommand ?? null,
 		cpuLimit: project.cpuLimit ?? "0.5",
 		memoryLimit: project.memoryLimit ?? "512m",
+		buildType: project.buildType ?? "DOCKERFILE",
+		runtimePorts:
+			project.ports && project.ports.length > 0
+				? project.ports.map((p) => ({
+						id: p.id,
+						port: p.port ? p.port.toString() : "",
+						domain: p.domain ?? "",
+						exposedPort: p.exposedPort ? p.exposedPort.toString() : "",
+					}))
+				: [createRuntimePortEntry("init")],
 	};
 }
 
 function hasFormChanged(current: FormState, initial: FormState): boolean {
 	return (
+		current.name !== initial.name ||
 		current.repoUrl !== initial.repoUrl ||
 		current.branch !== initial.branch ||
 		current.rootDirectory !== initial.rootDirectory ||
@@ -68,7 +98,9 @@ function hasFormChanged(current: FormState, initial: FormState): boolean {
 		current.buildCommand !== initial.buildCommand ||
 		current.startCommand !== initial.startCommand ||
 		current.cpuLimit !== initial.cpuLimit ||
-		current.memoryLimit !== initial.memoryLimit
+		current.memoryLimit !== initial.memoryLimit ||
+		current.buildType !== initial.buildType ||
+		JSON.stringify(current.runtimePorts) !== JSON.stringify(initial.runtimePorts)
 	);
 }
 
@@ -159,8 +191,6 @@ function RedeployToast({
 export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 	const isGit = project.sourceType === "GIT";
 	const isDockerRegistry = project.sourceType === "DOCKER_REGISTRY";
-	const isNixpacks = project.buildType === "NIXPACKS";
-	const isDockerfile = project.buildType === "DOCKERFILE";
 
 	// Host resource limits
 	const { data: hostResources } = api.project.getHostResources.useQuery(
@@ -172,21 +202,71 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 		hostResources?.totalMemoryBytes ?? 512 * 1024 * 1024,
 	);
 
-	const initial = React.useMemo(() => getInitialForm(project), [project]);
+	const [initial, setInitial] = React.useState<FormState>(() => getInitialForm(project));
 	const [form, setForm] = React.useState<FormState>(initial);
 	const [isSaving, setIsSaving] = React.useState(false);
 	const [showRedeployToast, setShowRedeployToast] = React.useState(false);
+	const [formError, setFormError] = React.useState("");
 
-	// Sync form when project data changes (e.g. after refetch)
+	const runtimePortIdRef = React.useRef(Date.now());
+	const nextRuntimePortId = () => `runtime-port-${runtimePortIdRef.current++}`;
+
+	const isNixpacks = form.buildType === "NIXPACKS";
+	const isDockerfile = form.buildType === "DOCKERFILE";
+
+	// Sync form when project data changes (e.g. after refetch for polling)
 	React.useEffect(() => {
-		setForm(getInitialForm(project));
+		const newInitial = getInitialForm(project);
+		setInitial((prevInitial) => {
+			setForm((prevForm) => {
+				// Only overwrite the user's form if they haven't made any unsaved changes
+				if (!hasFormChanged(prevForm, prevInitial)) {
+					return newInitial;
+				}
+				return prevForm;
+			});
+			return newInitial;
+		});
 	}, [project]);
 
 	const isDirty = hasFormChanged(form, initial);
 
+	// Metrics state
+	const [metricsData, setMetricsData] = React.useState<
+		Array<{ time: string; cpu: number; memory: number }>
+	>([]);
+
+	api.project.streamMetrics.useSubscription(
+		{ projectId: project.id },
+		{
+			enabled: project.status === "RUNNING",
+			onData(data) {
+				setMetricsData((prev) => {
+					const now = new Date();
+					const timeStr = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}:${now.getSeconds().toString().padStart(2, "0")}`;
+					const newData = [
+						...prev,
+						{
+							time: timeStr,
+							cpu: parseFloat(data.cpu),
+							memory: data.memory / (1024 * 1024),
+						},
+					];
+					if (newData.length > 20) {
+						newData.shift();
+					}
+					return newData;
+				});
+			},
+		},
+	);
+
 	// Fetch branches for the current repo URL
-	const { data: branches } = api.project.fetchBranches.useQuery(
-		{ repoUrl: form.repoUrl },
+	const { data: branches, isLoading: isLoadingBranches } = api.project.fetchBranches.useQuery(
+		{ 
+			repoUrl: form.repoUrl,
+			githubAppId: project.githubAppId ?? undefined,
+		},
 		{
 			enabled: isGit && form.repoUrl.length > 5,
 			staleTime: 60_000,
@@ -200,18 +280,67 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 				projectId: project.id,
 			});
 			setIsSaving(false);
+			toast.success("Project settings saved");
 			setShowRedeployToast(true);
 		},
-		onError: () => {
+		onError: (error) => {
+			setFormError(error.message || "Failed to update project");
+			toast.error(error.message || "Failed to update project");
 			setIsSaving(false);
 		},
 	});
 
 	const handleSave = () => {
-		setIsSaving(true);
+		setFormError("");
 
+		// Validate Ports Structure
+		const portsData = form.runtimePorts
+			.filter((entry) => entry.port.trim() && (entry.domain.trim() || entry.exposedPort.trim()))
+			.map((entry) => {
+				let domain: string | undefined = entry.domain.trim() || undefined;
+				if (domain && !/^https?:\/\//i.test(domain)) {
+					domain = `https://${domain}`;
+				}
+				return {
+					port: Number(entry.port),
+					domain,
+					exposedPort: entry.exposedPort.trim() || undefined,
+				};
+			});
+
+		for (const item of portsData) {
+			if (!Number.isFinite(item.port) || item.port < 1 || item.port > 65535) {
+				setFormError("Each port must be between 1 and 65535");
+				return;
+			}
+			if (!item.domain && !item.exposedPort) {
+				setFormError("Each port entry requires a domain/subdomain or an exposed port");
+				return;
+			}
+			if (item.domain) {
+				try {
+					const url = new URL(item.domain);
+					if (url.protocol !== "http:" && url.protocol !== "https:") {
+						setFormError("Domain must use http:// or https://");
+						return;
+					}
+					if (url.pathname !== "/" && url.pathname !== "") {
+						setFormError("Domain must simply be a domain without a path");
+						return;
+					}
+				} catch {
+					setFormError(`Invalid domain format for port ${item.port}`);
+					return;
+				}
+			}
+		}
+
+		setIsSaving(true);
+		
 		updateProject.mutate({
 			projectId: project.id,
+			...(form.name !== initial.name && { name: form.name }),
+			...(JSON.stringify(form.runtimePorts) !== JSON.stringify(initial.runtimePorts) && { portsData }),
 			...(form.repoUrl !== initial.repoUrl && { repoUrl: form.repoUrl }),
 			...(form.branch !== initial.branch && { branch: form.branch }),
 			...(form.rootDirectory !== initial.rootDirectory && {
@@ -233,10 +362,18 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 			...(form.memoryLimit !== initial.memoryLimit && {
 				memoryLimit: form.memoryLimit,
 			}),
+			...(form.buildType !== initial.buildType && {
+				buildType: form.buildType as "DOCKERFILE" | "COMPOSE" | "NIXPACKS",
+			}),
+		}, {
+			onSuccess: () => {
+				setInitial(form);
+			}
 		});
 	};
 
 	const handleDiscard = () => {
+		setFormError("");
 		setForm(initial);
 	};
 
@@ -258,8 +395,39 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 						Project settings and build configuration.
 					</p>
 				</div>
+                
+				{formError && (
+					<div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 font-medium text-destructive text-sm">
+						{formError}
+					</div>
+				)}
 
 				<div className="grid gap-6 md:grid-cols-2">
+					{/* ─── General Card ─────────────────────── */}
+					<GlassCard className="flex flex-col gap-4 md:col-span-2">
+						<div className="flex items-center gap-3">
+							<div className="rounded-lg bg-primary/10 p-2 text-primary">
+								<Terminal className="h-5 w-5" />
+							</div>
+							<div>
+								<h3 className="font-medium">General</h3>
+								<p className="text-muted-foreground text-sm">
+									Project identification.
+								</p>
+							</div>
+						</div>
+
+						<div className="grid gap-1">
+							<Label>Project Name</Label>
+							<Input
+								className="font-mono text-sm max-w-sm"
+								onChange={(e) => update("name", e.target.value)}
+								placeholder="my-awesome-app"
+								value={form.name}
+							/>
+						</div>
+					</GlassCard>
+
 					{/* ─── Source Card ─────────────────────── */}
 					<GlassCard className="flex flex-col gap-4 md:col-span-2 lg:col-span-1">
 						<div className="flex items-center gap-3">
@@ -280,10 +448,7 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 
 							{/* Docker Registry — show image, read-only */}
 							{isDockerRegistry && (
-								<ReadOnlyField
-									label="Image"
-									value={project.image ?? "-"}
-								/>
+								<ReadOnlyField label="Image" value={project.image ?? "-"} />
 							)}
 
 							{/* Git source — editable repo URL */}
@@ -302,20 +467,23 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 									<div className="grid grid-cols-2 gap-3">
 										<div className="grid gap-1">
 											<Label>Branch</Label>
-											{branches && branches.length > 0 ? (
+											{isLoadingBranches || (branches && branches.length > 0) ? (
 												<Select
+													disabled={isLoadingBranches}
 													onValueChange={(v) => update("branch", v)}
 													value={form.branch}
 												>
 													<SelectTrigger className="w-full font-mono text-sm">
-														<SelectValue placeholder="Select branch" />
+														<SelectValue placeholder={isLoadingBranches ? "Loading branches..." : "Select branch"} />
 													</SelectTrigger>
 													<SelectContent>
-														{branches.map((b: string) => (
-															<SelectItem key={b} value={b}>
-																{b}
-															</SelectItem>
-														))}
+														{Array.from(new Set([form.branch, ...(branches || [])]))
+															.filter(Boolean)
+															.map((b: string) => (
+																<SelectItem key={b} value={b}>
+																	{b}
+																</SelectItem>
+															))}
 													</SelectContent>
 												</Select>
 											) : (
@@ -344,9 +512,66 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 										)}
 									</div>
 
+									{/* Build Method Picker */}
+									<div className="space-y-3 border-b border-border/50 pb-4 pt-1">
+										<Label className="font-medium text-sm">Build Method</Label>
+										<div className="grid gap-3 md:grid-cols-2">
+											<button
+												className={cn(
+													"group relative overflow-hidden rounded-md border border-border/60 bg-card/20 p-3 text-left shadow-sm transition-all duration-300 hover:border-primary/30 hover:bg-muted/30 hover:shadow-md",
+													isNixpacks
+														? "border-primary/50 bg-primary/5 shadow-primary/10 ring-1 ring-primary/20"
+														: "opacity-80 hover:opacity-100",
+												)}
+												onClick={() => update("buildType", "NIXPACKS")}
+												type="button"
+											>
+												<div className="font-medium text-sm transition-colors group-hover:text-primary">
+													<span
+														className={cn(
+															isNixpacks
+																? "text-primary"
+																: "text-foreground",
+														)}
+													>
+														Auto Detect (Nixpacks)
+													</span>
+												</div>
+												{isNixpacks && (
+													<div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-50" />
+												)}
+											</button>
+											<button
+												className={cn(
+													"group relative overflow-hidden rounded-lg border border-border/60 bg-card/20 p-3 text-left shadow-sm transition-all duration-300 hover:border-primary/30 hover:bg-muted/30 hover:shadow-md",
+													isDockerfile
+														? "border-primary/50 bg-primary/5 shadow-primary/10 ring-1 ring-primary/20"
+														: "opacity-80 hover:opacity-100",
+												)}
+												onClick={() => update("buildType", "DOCKERFILE")}
+												type="button"
+											>
+												<div className="font-medium text-sm transition-colors group-hover:text-primary">
+													<span
+														className={cn(
+															isDockerfile
+																? "text-primary"
+																: "text-foreground",
+														)}
+													>
+														Dockerfile Path
+													</span>
+												</div>
+												{isDockerfile && (
+													<div className="absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-50" />
+												)}
+											</button>
+										</div>
+									</div>
+
 									{/* Dockerfile path — only for git+dockerfile */}
 									{isDockerfile && (
-										<div className="grid gap-1">
+										<div className="grid gap-1 pt-2">
 											<Label>Dockerfile Path</Label>
 											<Input
 												className="font-mono text-sm"
@@ -365,19 +590,14 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 
 					{/* ─── Resources Card ─────────────────── */}
 					<GlassCard className="flex flex-col gap-4 md:col-span-2 lg:col-span-1">
-						<div className="flex items-center gap-3">
-							<div className="rounded-lg bg-orange-500/10 p-2 text-orange-500">
-								<Box className="h-5 w-5" />
+						<div className="flex items-center gap-2">
+							<div className="rounded-md bg-orange-500/10 p-1.5 text-orange-500">
+								<Box className="h-4 w-4" />
 							</div>
-							<div>
-								<h3 className="font-medium">Resources</h3>
-								<p className="text-muted-foreground text-sm">
-									Runtime resource limits.
-								</p>
-							</div>
+							<h3 className="font-medium">Resources</h3>
 						</div>
 
-						<div className="space-y-3">
+						<div className="grid grid-cols-2 gap-3">
 							<div className="grid gap-1">
 								<Label>CPU Limit</Label>
 								<Select
@@ -415,6 +635,51 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 								</Select>
 							</div>
 						</div>
+
+						{project.status === "RUNNING" && metricsData.length > 0 && (
+							<div className="mt-2 space-y-4 border-t border-border/50 pt-4">
+								<div>
+									<Label className="mb-2 block text-xs text-muted-foreground">
+										CPU Usage (%)
+									</Label>
+									<div className="h-28 w-full">
+										<ResponsiveContainer height="100%" width="100%">
+											<LineChart data={metricsData}>
+												<CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+												<XAxis dataKey="time" hide />
+												<YAxis domain={[0, "dataMax + 10"]} hide />
+												<Tooltip
+													contentStyle={{ backgroundColor: "rgba(0,0,0,0.8)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px" }}
+													itemStyle={{ color: "#fff" }}
+													labelStyle={{ color: "rgba(255,255,255,0.7)" }}
+												/>
+												<Line dataKey="cpu" dot={false} isAnimationActive={false} stroke="#f97316" strokeWidth={2} type="monotone" />
+											</LineChart>
+										</ResponsiveContainer>
+									</div>
+								</div>
+								<div>
+									<Label className="mb-2 block text-xs text-muted-foreground">
+										Memory Usage (MB)
+									</Label>
+									<div className="h-28 w-full">
+										<ResponsiveContainer height="100%" width="100%">
+											<LineChart data={metricsData}>
+												<CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+												<XAxis dataKey="time" hide />
+												<YAxis domain={[0, "dataMax + 50"]} hide />
+												<Tooltip
+													contentStyle={{ backgroundColor: "rgba(0,0,0,0.8)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px" }}
+													itemStyle={{ color: "#fff" }}
+													labelStyle={{ color: "rgba(255,255,255,0.7)" }}
+												/>
+												<Line dataKey="memory" dot={false} isAnimationActive={false} stroke="#3b82f6" strokeWidth={2} type="monotone" />
+											</LineChart>
+										</ResponsiveContainer>
+									</div>
+								</div>
+							</div>
+						)}
 					</GlassCard>
 
 					{/* ─── Build Commands Card (only for Nixpacks) ─── */}
@@ -456,43 +721,103 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 						</GlassCard>
 					)}
 
-					{/* Build Type — read-only, shown for all except docker registry */}
-					{!isDockerRegistry && (
-						<GlassCard className="flex flex-col gap-4 md:col-span-2">
+					
+					{/* ─── Ports & Domains Card ─────────────────────── */}
+					<GlassCard className="flex flex-col gap-4 md:col-span-2">
+						<div className="flex items-center justify-between">
 							<div className="flex items-center gap-3">
-								<div className="rounded-lg bg-blue-500/10 p-2 text-blue-500">
-									<Terminal className="h-5 w-5" />
+								<div className="rounded-lg bg-indigo-500/10 p-2 text-indigo-500">
+									<GlobeIcon className="h-5 w-5" />
 								</div>
 								<div>
-									<h3 className="font-medium">Build Info</h3>
+									<h3 className="font-medium">Ports & Domains</h3>
 									<p className="text-muted-foreground text-sm">
-										Build strategy for this project.
+										Manage routing and exposed ports.
 									</p>
 								</div>
 							</div>
-							<ReadOnlyField
-								label="Build Type"
-								value={project.buildType ?? "-"}
-							/>
-						</GlassCard>
-					)}
+							<Button
+								onClick={() =>
+									setForm((prev) => ({
+										...prev,
+										runtimePorts: [
+											...prev.runtimePorts,
+											createRuntimePortEntry(nextRuntimePortId()),
+										],
+									}))
+								}
+								size="sm"
+								type="button"
+								variant="secondary"
+							>
+								Add Port
+							</Button>
+						</div>
 
-					{isDockerRegistry && (
-						<GlassCard className="flex flex-col gap-4 md:col-span-2">
-							<div className="flex items-center gap-3">
-								<div className="rounded-lg bg-blue-500/10 p-2 text-blue-500">
-									<Terminal className="h-5 w-5" />
-								</div>
-								<div>
-									<h3 className="font-medium">Build</h3>
-									<p className="text-muted-foreground text-sm">
-										No build step. This project runs directly from the selected
-										image.
-									</p>
+						<div className="space-y-4 pt-2">
+							<div className="space-y-2 text-muted-foreground text-xs">
+								<div className="grid gap-2 grid-cols-[120px_1fr_130px_60px]">
+									<div className="font-medium">Container Port</div>
+									<div className="font-medium">Domain</div>
+									<div className="font-medium shrink-0">Exposed</div>
+									<div className="w-[60px]"></div>
 								</div>
 							</div>
-						</GlassCard>
-					)}
+							<div className="space-y-3">
+								{form.runtimePorts.map((entry, index) => (
+									<div
+										className="fade-in zoom-in-95 grid animate-in gap-2 duration-200 grid-cols-[120px_1fr_130px_60px]"
+										key={entry.id}
+									>
+										<Input
+											className="bg-muted/20 font-mono text-sm px-3"
+											onChange={(e) => {
+												const newPorts = [...form.runtimePorts];
+												newPorts[index] = { ...newPorts[index], port: e.target.value } as RuntimePortEntry;
+												update("runtimePorts", newPorts);
+											}}
+											placeholder="3000"
+											value={entry.port}
+										/>
+										<Input
+											className="bg-muted/20 font-mono text-sm px-3"
+											onChange={(e) => {
+												const newPorts = [...form.runtimePorts];
+												newPorts[index] = { ...newPorts[index], domain: e.target.value } as RuntimePortEntry;
+												update("runtimePorts", newPorts);
+											}}
+											placeholder="https://app.example.com"
+											value={entry.domain}
+										/>
+										<Input
+											className="bg-muted/20 font-mono text-sm px-3"
+											onChange={(e) => {
+												const newPorts = [...form.runtimePorts];
+												newPorts[index] = { ...newPorts[index], exposedPort: e.target.value } as RuntimePortEntry;
+												update("runtimePorts", newPorts);
+											}}
+											placeholder="8080"
+											value={entry.exposedPort}
+										/>
+										<Button
+											className="hover:bg-destructive/10 hover:text-destructive px-2"
+											onClick={() => {
+												update(
+													"runtimePorts",
+													form.runtimePorts.filter((_, i) => i !== index),
+												);
+											}}
+											type="button"
+											variant="outline"
+										>
+											<X className="h-4 w-4" />
+										</Button>
+									</div>
+								))}
+							</div>
+						</div>
+					</GlassCard>
+
 				</div>
 			</div>
 

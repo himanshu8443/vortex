@@ -8,13 +8,17 @@ import {
 	Loader2,
 	StopCircle,
 	Terminal,
+	Copy,
+	GitCommit,
 } from "lucide-react";
-import * as React from "react";
 import { Badge } from "@/components/ui/badge";
 import { GlassCard } from "@/components/ui/glass-card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import type { AppRouter } from "@/server/api/root";
 import { api } from "@/trpc/react";
+import React from "react";
+import { toast } from "sonner";
 
 interface DeploymentsTabProps {
 	project: inferRouterOutputs<AppRouter>["project"]["getProjectById"]["data"];
@@ -48,7 +52,17 @@ function formatDate(value: Date | null) {
 
 function BuildLogsPanel({ deploymentId }: { deploymentId: string }) {
 	const [logs, setLogs] = React.useState<string>("");
-	const bottomRef = React.useRef<HTMLDivElement>(null);
+	const scrollRef = React.useRef<HTMLDivElement>(null);
+
+	const scrollToBottom = React.useCallback(() => {
+		if (scrollRef.current) {
+			scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+		}
+	}, []);
+
+	React.useEffect(() => {
+		scrollToBottom();
+	}, [logs, scrollToBottom]);
 
 	const isSubscribed = api.logs.streamDeploymentLogs.useSubscription(
 		{ deploymentId },
@@ -56,9 +70,6 @@ function BuildLogsPanel({ deploymentId }: { deploymentId: string }) {
 			enabled: !!deploymentId,
 			onData: (chunk) => {
 				setLogs((prev) => prev + chunk);
-				queueMicrotask(() => {
-					bottomRef.current?.scrollIntoView({ behavior: "auto" });
-				});
 			},
 			onError: (error) => {
 				console.error("Log stream error:", error);
@@ -83,7 +94,7 @@ function BuildLogsPanel({ deploymentId }: { deploymentId: string }) {
 				<Terminal className="h-3 w-3" />
 				Build Logs
 			</div>
-			<div className="max-h-[40vh] overflow-y-auto bg-black px-4 py-3 font-mono text-green-400 text-xs leading-5">
+			<div ref={scrollRef} className="max-h-[40vh] overflow-y-auto bg-black px-4 py-3 font-mono text-green-400 text-xs leading-5">
 				{lines.length === 0 ? (
 					<div className="text-muted-foreground">No logs yet...</div>
 				) : (
@@ -93,7 +104,6 @@ function BuildLogsPanel({ deploymentId }: { deploymentId: string }) {
 						</div>
 					))
 				)}
-				<div ref={bottomRef} />
 			</div>
 		</div>
 	);
@@ -102,15 +112,14 @@ function BuildLogsPanel({ deploymentId }: { deploymentId: string }) {
 export function DeploymentsTab({ project }: DeploymentsTabProps) {
 	const [expandedId, setExpandedId] = React.useState<string | null>(null);
 
-	const {
-		data: deployments,
-	} = api.deployments.getAllDeploymentsByProjectId.useQuery(
-		{ projectId: project.id },
-		{
-			enabled: !!project.id,
-			refetchInterval: 5000,
-		},
-	);
+	const { data: deployments, isLoading } =
+		api.deployments.getAllDeploymentsByProjectId.useQuery(
+			{ projectId: project.id },
+			{
+				enabled: !!project.id,
+				refetchInterval: 5000,
+			},
+		);
 
 	const toggleExpand = (id: string) => {
 		setExpandedId((prev) => (prev === id ? null : id));
@@ -129,14 +138,19 @@ export function DeploymentsTab({ project }: DeploymentsTabProps) {
 
 			<GlassCard className="overflow-hidden p-0">
 				<div className="flex flex-col">
-					{!deployments ||
-						(deployments.length === 0 && (
-							<div className="p-4 text-muted-foreground text-sm">
-								No deployments yet.
-							</div>
-						))}
-					{deployments?.map((deploy, i) => {
-						const mappedStatus = mapStatus(deploy.status);
+					{isLoading ? (
+						<div className="space-y-4 p-4">
+							<Skeleton className="h-16 w-full rounded-xl" />
+							<Skeleton className="h-16 w-full rounded-xl" />
+							<Skeleton className="h-16 w-full rounded-xl" />
+						</div>
+					) : !deployments || deployments.length === 0 ? (
+						<div className="p-4 text-muted-foreground text-sm">
+							No deployments yet.
+						</div>
+					) : (
+						deployments.map((deploy, i) => {
+							const mappedStatus = mapStatus(deploy.status);
 						const isExpanded = expandedId === deploy.id;
 						return (
 							<div
@@ -202,22 +216,46 @@ export function DeploymentsTab({ project }: DeploymentsTabProps) {
 													{deploy.status}
 												</Badge>
 											</div>
-											<div className="flex items-center gap-1 text-muted-foreground text-xs">
-												<span className="font-mono">
-													{deploy.commitHash ?? ""}
-												</span>
+											<div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-muted-foreground text-xs">
+												{deploy.commitHash && (
+													<button
+														className="flex items-center gap-1 rounded border border-border/50 bg-muted/40 px-1.5 py-0.5 font-mono transition-colors hover:border-border/80 hover:bg-muted/60 hover:text-primary"
+														onClick={(e) => {
+															e.stopPropagation();
+															navigator.clipboard.writeText(deploy.commitHash!);
+															toast.success("Commit hash copied to clipboard");
+														}}
+														title="Copy full commit SHA"
+														type="button"
+													>
+														<GitCommit className="h-3 w-3" />
+														{deploy.commitHash.slice(0, 7)}
+														<Copy className="h-2.5 w-2.5 opacity-60" />
+													</button>
+												)}
 												{deploy.commitMessage && (
 													<>
-														<span>•</span>
-														<span>{deploy.commitMessage}</span>
+														{deploy.commitHash && (
+															<span className="text-border/60">•</span>
+														)}
+														<span
+															className="max-w-[180px] truncate sm:max-w-[280px] md:max-w-[380px]"
+															title={deploy.commitMessage}
+														>
+															{deploy.commitMessage}
+														</span>
 													</>
 												)}
-												<span>•</span>
-												<span>
+												{(deploy.commitHash || deploy.commitMessage) && (
+													<span className="text-border/60">•</span>
+												)}
+												<span className="flex shrink-0 items-center">
 													{formatDuration(deploy.startedAt, deploy.endedAt)}
 												</span>
-												<span>•</span>
-												<span>{formatDate(deploy.startedAt)}</span>
+												<span className="text-border/60">•</span>
+												<span className="flex shrink-0 items-center">
+													{formatDate(deploy.startedAt)}
+												</span>
 											</div>
 										</div>
 									</div>
@@ -237,7 +275,7 @@ export function DeploymentsTab({ project }: DeploymentsTabProps) {
 								{isExpanded && <BuildLogsPanel deploymentId={deploy.id} />}
 							</div>
 						);
-					})}
+					}))}
 				</div>
 			</GlassCard>
 		</div>

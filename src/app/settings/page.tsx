@@ -19,7 +19,9 @@ import { GlassCard } from "@/components/ui/glass-card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/trpc/react";
+import { toast } from "sonner";
 
 function ProfileForm() {
 	const { data: profile, isLoading } = api.user.getProfile.useQuery();
@@ -44,11 +46,13 @@ function ProfileForm() {
 	const updateProfile = api.user.updateProfile.useMutation({
 		onSuccess: () => {
 			void utils.user.getProfile.invalidate();
+			toast.success("Profile updated successfully");
 			setSaveSuccess(true);
 			setIsSaving(false);
 			setTimeout(() => setSaveSuccess(false), 3000);
 		},
-		onError: () => {
+		onError: (err) => {
+			toast.error(err.message || "Failed to update profile");
 			setIsSaving(false);
 		},
 	});
@@ -66,8 +70,30 @@ function ProfileForm() {
 
 	if (isLoading) {
 		return (
-			<GlassCard className="flex justify-center border border-border/60 p-8">
-				<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+			<GlassCard className="border border-border/60 p-6">
+				<div className="space-y-4">
+					<div className="grid gap-4 sm:grid-cols-2">
+						<div className="space-y-2">
+							<Skeleton className="h-4 w-24" />
+							<Skeleton className="h-10 w-full" />
+						</div>
+						<div className="space-y-2">
+							<Skeleton className="h-4 w-16" />
+							<Skeleton className="h-10 w-full" />
+						</div>
+					</div>
+					<div className="space-y-2">
+						<Skeleton className="h-4 w-32" />
+						<Skeleton className="h-10 w-full" />
+					</div>
+					<div className="space-y-2">
+						<Skeleton className="h-4 w-32" />
+						<Skeleton className="h-10 w-full" />
+					</div>
+					<div className="flex justify-end pt-2">
+						<Skeleton className="h-10 w-32" />
+					</div>
+				</div>
 			</GlassCard>
 		);
 	}
@@ -162,8 +188,12 @@ export default function SettingsPage() {
 
 	const deleteApp = api.github.deleteApp.useMutation({
 		onSuccess: () => {
+			toast.success("GitHub App removed");
 			void utils.github.listApps.invalidate();
 		},
+		onError: (err) => {
+			toast.error(err.message || "Failed to remove GitHub App");
+		}
 	});
 
 	// ── GitHub App manifest flow ──────────────────────────────
@@ -343,11 +373,23 @@ export default function SettingsPage() {
 					</div>
 
 					{isLoading ? (
-						<GlassCard className="border border-border/60">
-							<div className="flex items-center justify-center py-6">
-								<Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-							</div>
-						</GlassCard>
+						<div className="space-y-3">
+							<GlassCard className="border border-border/60">
+								<div className="flex items-center justify-between">
+									<div className="flex items-center gap-3">
+										<Skeleton className="h-10 w-10 rounded-lg" />
+										<div className="space-y-2">
+											<Skeleton className="h-4 w-32" />
+											<Skeleton className="h-3 w-24" />
+										</div>
+									</div>
+									<div className="flex items-center gap-2">
+										<Skeleton className="h-8 w-20" />
+										<Skeleton className="h-8 w-20" />
+									</div>
+								</div>
+							</GlassCard>
+						</div>
 					) : apps.length === 0 ? (
 						<GlassCard className="border border-border/60 border-dashed">
 							<div className="flex flex-col items-center justify-center gap-2 py-8 text-center">

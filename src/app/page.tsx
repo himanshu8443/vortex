@@ -7,6 +7,7 @@ import { CreateProjectDialog } from "@/components/create-project";
 import type { Project } from "@/components/projects/project-card";
 import { ProjectCard } from "@/components/projects/project-card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/trpc/react";
 
 function getUpdatedAtLabel(dateValue: Date | null) {
@@ -53,16 +54,24 @@ export default function Page() {
 	const metricsMap = React.useMemo(() => {
 		const map = new Map<
 			string,
-			{ cpu: string; memory: number; memoryLimit: number; memoryPercent: string }
+			{
+				cpu: string;
+				memory: number;
+				memoryLimit: number;
+				memoryPercent: string;
+			}
 		>();
 		if (metricsData) {
 			for (const entry of metricsData) {
-				map.set(entry.projectId, entry.metrics as {
-					cpu: string;
-					memory: number;
-					memoryLimit: number;
-					memoryPercent: string;
-				});
+				map.set(
+					entry.projectId,
+					entry.metrics as {
+						cpu: string;
+						memory: number;
+						memoryLimit: number;
+						memoryPercent: string;
+					},
+				);
 			}
 		}
 		return map;
@@ -107,17 +116,18 @@ export default function Page() {
 				</div>
 
 				<div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-					{isLoading && (
-						<div className="rounded-xl border border-border bg-card/40 p-4 text-muted-foreground text-sm sm:col-span-2 lg:col-span-3">
-							Loading projects...
-						</div>
-					)}
+					{isLoading ? (
+						Array.from({ length: 3 }).map((_, i) => (
+							<Skeleton className="h-48 w-full rounded-xl" key={`skeleton-${i}`} />
+						))
+					) : null}
 
 					{error && (
 						<div className="flex items-center justify-between gap-3 rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-destructive text-sm sm:col-span-2 lg:col-span-3">
 							<span>
-								Failed to load projects. Please check your database migration
-								and try again.
+								{error
+									? error.message
+									: "Failed to load projects. Please check your database migration and try again."}
 							</span>
 							<Button
 								onClick={() => void refetch()}

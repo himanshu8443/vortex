@@ -14,9 +14,11 @@ import { LogsTab } from "@/components/projects/logs-tab";
 import { ProjectHeader } from "@/components/projects/project-header";
 import { SettingsTab } from "@/components/projects/settings-tab";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/trpc/react";
+import { toast } from "sonner";
 
 const fallbackVariables = [{ key: "", value: "" }];
 const tabValues = ["settings", "deployments", "logs", "env", "danger"] as const;
@@ -76,19 +78,31 @@ export default function ProjectPage() {
 
 	const deleteProject = api.project.deleteProject.useMutation({
 		onSuccess: () => {
+			toast.success("Project deleted successfully");
 			window.location.href = "/";
+		},
+		onError: (err) => {
+			toast.error(err.message || "Failed to delete project");
 		},
 	});
 
 	const redeployProject = api.project.redeploy.useMutation({
 		onSuccess: () => {
+			toast.success("Redeployment triggered successfully");
 			void refetch();
+		},
+		onError: (err) => {
+			toast.error(err.message || "Failed to trigger redeployment");
 		},
 	});
 
 	const restartProject = api.project.restart.useMutation({
 		onSuccess: () => {
+			toast.success("Project restarted successfully");
 			void refetch();
+		},
+		onError: (err) => {
+			toast.error(err.message || "Failed to restart project");
 		},
 	});
 
@@ -165,8 +179,38 @@ export default function ProjectPage() {
 
 	if (isLoading) {
 		return (
-			<div className="container mx-auto mt-10 max-w-6xl px-4 text-muted-foreground text-sm md:px-6">
-				Loading project details...
+			<div className="min-h-screen pb-20">
+				<div className="border-border/40 border-b bg-card/40 px-6 py-8">
+					<div className="container mx-auto max-w-6xl">
+						<div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+							<div className="flex items-center gap-4">
+								<Skeleton className="h-12 w-12 rounded-xl" />
+								<div className="space-y-2">
+									<Skeleton className="h-6 w-48" />
+									<div className="flex items-center gap-2">
+										<Skeleton className="h-4 w-24" />
+										<Skeleton className="h-4 w-32" />
+									</div>
+								</div>
+							</div>
+							<div className="flex items-center gap-3">
+								<Skeleton className="h-9 w-24" />
+								<Skeleton className="h-9 w-24" />
+							</div>
+						</div>
+					</div>
+				</div>
+				<main className="container mx-auto mt-8 max-w-6xl px-4 md:px-6">
+					<div className="flex gap-4 border-b border-border/40 pb-2">
+						<Skeleton className="h-6 w-24" />
+						<Skeleton className="h-6 w-24" />
+						<Skeleton className="h-6 w-24" />
+					</div>
+					<div className="mt-8 grid gap-6 md:grid-cols-2">
+						<Skeleton className="h-64 w-full rounded-xl" />
+						<Skeleton className="h-64 w-full rounded-xl" />
+					</div>
+				</main>
 			</div>
 		);
 	}
@@ -184,14 +228,14 @@ export default function ProjectPage() {
 		);
 	}
 
-	const primaryDomain = project.ports[0]?.domain ?? `${project.name}.localhost`;
+	const primaryDomain = project?.ports?.map((port) => port.domain).filter((domain) => domain !== null) ?? [];
 	const repoDisplay = project.repoUrl ?? project.image ?? "manual";
 
 	return (
 		<div className="min-h-screen pb-20">
 			<ProjectHeader
 				branch={project.branch ?? "main"}
-				domain={primaryDomain}
+				domains={primaryDomain}
 				gitRepo={repoDisplay}
 				isRedeploying={redeployProject.isPending}
 				isRestarting={restartProject.isPending}

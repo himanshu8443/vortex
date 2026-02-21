@@ -1,51 +1,45 @@
-import type { GitBuildMethod, RuntimePortEntry, SourceType } from "./types";
+import { useProjectForm } from "./types";
 
-interface SummaryStepProps {
-	projectName: string;
-	sourceType: SourceType;
-	repoUrl: string;
-	gitBuildMethod: GitBuildMethod;
-	imageName: string;
-	imageTag: string;
-	runtimePorts: RuntimePortEntry[];
-	branch: string;
-}
+export function SummaryStep() {
+	const { formData } = useProjectForm();
+	const {
+		projectName,
+		sourceType,
+		repoUrl,
+		gitBuildMethod,
+		imageName,
+		imageTag,
+		runtimePorts,
+		branch,
+	} = formData;
 
-export function SummaryStep({
-	projectName,
-	sourceType,
-	repoUrl,
-	gitBuildMethod,
-	imageName,
-	imageTag,
-	runtimePorts,
-	branch,
-}: SummaryStepProps) {
 	return (
-		<div className="space-y-2.5 rounded-lg border p-3 text-sm">
-			<div className="flex justify-between">
+		<div className="space-y-3 rounded-lg border border-border/60 bg-card/20 p-4 text-sm shadow-sm">
+			<div className="flex justify-between border-border/50 border-b pb-2">
 				<span className="text-muted-foreground">Project</span>
-				<span>{projectName || "-"}</span>
+				<span className="font-medium">{projectName || "-"}</span>
 			</div>
-			<div className="flex justify-between">
+
+			<div className="flex justify-between border-border/50 border-b py-2">
 				<span className="text-muted-foreground">Source Type</span>
-				<span>{sourceType.replace("_", " ")}</span>
+				<span className="font-medium">{sourceType.replace("_", " ")}</span>
 			</div>
+
 			{sourceType === "GIT" && (
 				<>
-					<div className="flex justify-between">
+					<div className="flex justify-between border-border/50 border-b py-2">
 						<span className="text-muted-foreground">Repository</span>
-						<span className="max-w-[70%] truncate text-right">
+						<span className="mt-0.5 max-w-[70%] truncate text-right font-mono text-xs">
 							{repoUrl || "-"}
 						</span>
 					</div>
-					<div className="flex justify-between">
+					<div className="flex justify-between border-border/50 border-b py-2">
 						<span className="text-muted-foreground">Branch</span>
-						<span>{branch || "main"}</span>
+						<span className="font-medium">{branch || "main"}</span>
 					</div>
-					<div className="flex justify-between">
+					<div className="flex justify-between border-border/50 border-b py-2">
 						<span className="text-muted-foreground">Build Method</span>
-						<span>
+						<span className="font-medium">
 							{gitBuildMethod === "NIXPACKS"
 								? "Auto Detect (Nixpacks)"
 								: "Dockerfile Path"}
@@ -53,15 +47,17 @@ export function SummaryStep({
 					</div>
 				</>
 			)}
+
 			{sourceType === "DOCKER_IMAGE" && (
-				<div className="flex justify-between">
+				<div className="flex justify-between border-border/50 border-b py-2">
 					<span className="text-muted-foreground">Image</span>
-					<span>
+					<span className="mt-0.5 font-mono text-xs">
 						{imageName}:{imageTag || "latest"}
 					</span>
 				</div>
 			)}
-			<div className="flex justify-between">
+
+			<div className="flex justify-between pt-2">
 				<span className="text-muted-foreground">Ports</span>
 				<span className="text-right text-xs">
 					{runtimePorts.filter((entry) => entry.port.trim()).length > 0
