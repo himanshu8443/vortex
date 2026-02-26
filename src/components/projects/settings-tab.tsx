@@ -1,11 +1,15 @@
 "use client";
 
-import {
-	createRuntimePortEntry,
-	type RuntimePortEntry,
-} from "@/components/create-project/types";
 import type { inferRouterOutputs } from "@trpc/server";
-import { Box, GitBranch, GlobeIcon, Rocket, Terminal, X } from "lucide-react";
+import {
+	Box,
+	FileCode2,
+	GitBranch,
+	GlobeIcon,
+	Rocket,
+	Terminal,
+	X,
+} from "lucide-react";
 import * as React from "react";
 import {
 	CartesianGrid,
@@ -17,9 +21,13 @@ import {
 	YAxis,
 } from "recharts";
 import { toast } from "sonner";
+import { FileContentSourcePicker } from "@/components/create-project/file-content-editor-dialog";
+import {
+	createRuntimePortEntry,
+	type RuntimePortEntry,
+} from "@/components/create-project/types";
 import { Button } from "@/components/ui/button";
 import { GlassCard } from "@/components/ui/glass-card";
-import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -35,6 +43,7 @@ import {
 	getAvailableCpuOptions,
 	getAvailableMemoryOptions,
 } from "@/lib/resource-options";
+import { cn } from "@/lib/utils";
 import type { AppRouter } from "@/server/api/root";
 import { api } from "@/trpc/react";
 
@@ -53,6 +62,7 @@ interface FormState {
 	branch: string;
 	rootDirectory: string;
 	dockerfilePath: string;
+	dockerfileContent: string;
 	installCommand: string | null;
 	buildCommand: string | null;
 	startCommand: string | null;
@@ -69,6 +79,7 @@ function getInitialForm(project: ProjectData): FormState {
 		branch: project.branch ?? "main",
 		rootDirectory: project.rootDirectory ?? "/",
 		dockerfilePath: project.dockerfilePath ?? "Dockerfile",
+		dockerfileContent: project.dockerfileContent ?? "",
 		installCommand: project.installCommand ?? null,
 		buildCommand: project.buildCommand ?? null,
 		startCommand: project.startCommand ?? null,
@@ -94,13 +105,15 @@ function hasFormChanged(current: FormState, initial: FormState): boolean {
 		current.branch !== initial.branch ||
 		current.rootDirectory !== initial.rootDirectory ||
 		current.dockerfilePath !== initial.dockerfilePath ||
+		current.dockerfileContent !== initial.dockerfileContent ||
 		current.installCommand !== initial.installCommand ||
 		current.buildCommand !== initial.buildCommand ||
 		current.startCommand !== initial.startCommand ||
 		current.cpuLimit !== initial.cpuLimit ||
 		current.memoryLimit !== initial.memoryLimit ||
 		current.buildType !== initial.buildType ||
-		JSON.stringify(current.runtimePorts) !== JSON.stringify(initial.runtimePorts)
+		JSON.stringify(current.runtimePorts) !==
+			JSON.stringify(initial.runtimePorts)
 	);
 }
 
@@ -191,6 +204,7 @@ function RedeployToast({
 export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 	const isGit = project.sourceType === "GIT";
 	const isDockerRegistry = project.sourceType === "DOCKER_REGISTRY";
+	const isManual = project.sourceType === "MANUAL";
 
 	// Host resource limits
 	const { data: hostResources } = api.project.getHostResources.useQuery(
@@ -202,7 +216,9 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 		hostResources?.totalMemoryBytes ?? 512 * 1024 * 1024,
 	);
 
-	const [initial, setInitial] = React.useState<FormState>(() => getInitialForm(project));
+	const [initial, setInitial] = React.useState<FormState>(() =>
+		getInitialForm(project),
+	);
 	const [form, setForm] = React.useState<FormState>(initial);
 	const [isSaving, setIsSaving] = React.useState(false);
 	const [showRedeployToast, setShowRedeployToast] = React.useState(false);
@@ -262,16 +278,17 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 	);
 
 	// Fetch branches for the current repo URL
-	const { data: branches, isLoading: isLoadingBranches } = api.project.fetchBranches.useQuery(
-		{ 
-			repoUrl: form.repoUrl,
-			githubAppId: project.githubAppId ?? undefined,
-		},
-		{
-			enabled: isGit && form.repoUrl.length > 5,
-			staleTime: 60_000,
-		},
-	);
+	const { data: branches, isLoading: isLoadingBranches } =
+		api.project.fetchBranches.useQuery(
+			{
+				repoUrl: form.repoUrl,
+				githubAppId: project.githubAppId ?? undefined,
+			},
+			{
+				enabled: isGit && form.repoUrl.length > 5,
+				staleTime: 60_000,
+			},
+		);
 
 	const utils = api.useUtils();
 	const updateProject = api.project.updateProject.useMutation({
@@ -295,7 +312,11 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 
 		// Validate Ports Structure
 		const portsData = form.runtimePorts
-			.filter((entry) => entry.port.trim() && (entry.domain.trim() || entry.exposedPort.trim()))
+			.filter(
+				(entry) =>
+					entry.port.trim() &&
+					(entry.domain.trim() || entry.exposedPort.trim()),
+			)
 			.map((entry) => {
 				let domain: string | undefined = entry.domain.trim() || undefined;
 				if (domain && !/^https?:\/\//i.test(domain)) {
@@ -314,7 +335,9 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 				return;
 			}
 			if (!item.domain && !item.exposedPort) {
-				setFormError("Each port entry requires a domain/subdomain or an exposed port");
+				setFormError(
+					"Each port entry requires a domain/subdomain or an exposed port",
+				);
 				return;
 			}
 			if (item.domain) {
@@ -336,40 +359,47 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 		}
 
 		setIsSaving(true);
-		
-		updateProject.mutate({
-			projectId: project.id,
-			...(form.name !== initial.name && { name: form.name }),
-			...(JSON.stringify(form.runtimePorts) !== JSON.stringify(initial.runtimePorts) && { portsData }),
-			...(form.repoUrl !== initial.repoUrl && { repoUrl: form.repoUrl }),
-			...(form.branch !== initial.branch && { branch: form.branch }),
-			...(form.rootDirectory !== initial.rootDirectory && {
-				rootDirectory: form.rootDirectory,
-			}),
-			...(form.dockerfilePath !== initial.dockerfilePath && {
-				dockerfilePath: form.dockerfilePath,
-			}),
-			...(form.installCommand !== initial.installCommand && {
-				installCommand: form.installCommand,
-			}),
-			...(form.buildCommand !== initial.buildCommand && {
-				buildCommand: form.buildCommand,
-			}),
-			...(form.startCommand !== initial.startCommand && {
-				startCommand: form.startCommand,
-			}),
-			...(form.cpuLimit !== initial.cpuLimit && { cpuLimit: form.cpuLimit }),
-			...(form.memoryLimit !== initial.memoryLimit && {
-				memoryLimit: form.memoryLimit,
-			}),
-			...(form.buildType !== initial.buildType && {
-				buildType: form.buildType as "DOCKERFILE" | "COMPOSE" | "NIXPACKS",
-			}),
-		}, {
-			onSuccess: () => {
-				setInitial(form);
-			}
-		});
+
+		updateProject.mutate(
+			{
+				projectId: project.id,
+				...(form.name !== initial.name && { name: form.name }),
+				...(JSON.stringify(form.runtimePorts) !==
+					JSON.stringify(initial.runtimePorts) && { portsData }),
+				...(form.repoUrl !== initial.repoUrl && { repoUrl: form.repoUrl }),
+				...(form.branch !== initial.branch && { branch: form.branch }),
+				...(form.rootDirectory !== initial.rootDirectory && {
+					rootDirectory: form.rootDirectory,
+				}),
+				...(form.dockerfilePath !== initial.dockerfilePath && {
+					dockerfilePath: form.dockerfilePath,
+				}),
+				...(form.dockerfileContent !== initial.dockerfileContent && {
+					dockerfileContent: form.dockerfileContent,
+				}),
+				...(form.installCommand !== initial.installCommand && {
+					installCommand: form.installCommand,
+				}),
+				...(form.buildCommand !== initial.buildCommand && {
+					buildCommand: form.buildCommand,
+				}),
+				...(form.startCommand !== initial.startCommand && {
+					startCommand: form.startCommand,
+				}),
+				...(form.cpuLimit !== initial.cpuLimit && { cpuLimit: form.cpuLimit }),
+				...(form.memoryLimit !== initial.memoryLimit && {
+					memoryLimit: form.memoryLimit,
+				}),
+				...(form.buildType !== initial.buildType && {
+					buildType: form.buildType as "DOCKERFILE" | "COMPOSE" | "NIXPACKS",
+				}),
+			},
+			{
+				onSuccess: () => {
+					setInitial(form);
+				},
+			},
+		);
 	};
 
 	const handleDiscard = () => {
@@ -395,7 +425,7 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 						Project settings and build configuration.
 					</p>
 				</div>
-                
+
 				{formError && (
 					<div className="rounded-md border border-destructive/50 bg-destructive/10 p-3 font-medium text-destructive text-sm">
 						{formError}
@@ -420,7 +450,7 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 						<div className="grid gap-1">
 							<Label>Project Name</Label>
 							<Input
-								className="font-mono text-sm max-w-sm"
+								className="max-w-sm font-mono text-sm"
 								onChange={(e) => update("name", e.target.value)}
 								placeholder="my-awesome-app"
 								value={form.name}
@@ -451,6 +481,18 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 								<ReadOnlyField label="Image" value={project.image ?? "-"} />
 							)}
 
+							{/* Manual (Dockerfile) source — show status */}
+							{isManual && (
+								<ReadOnlyField
+									label="Source"
+									value={
+										form.dockerfileContent.trim()
+											? `Dockerfile (${form.dockerfileContent.split("\n").length} lines)`
+											: "Dockerfile — not configured"
+									}
+								/>
+							)}
+
 							{/* Git source — editable repo URL */}
 							{isGit && (
 								<>
@@ -467,17 +509,26 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 									<div className="grid grid-cols-2 gap-3">
 										<div className="grid gap-1">
 											<Label>Branch</Label>
-											{isLoadingBranches || (branches && branches.length > 0) ? (
+											{isLoadingBranches ||
+											(branches && branches.length > 0) ? (
 												<Select
 													disabled={isLoadingBranches}
 													onValueChange={(v) => update("branch", v)}
 													value={form.branch}
 												>
 													<SelectTrigger className="w-full font-mono text-sm">
-														<SelectValue placeholder={isLoadingBranches ? "Loading branches..." : "Select branch"} />
+														<SelectValue
+															placeholder={
+																isLoadingBranches
+																	? "Loading branches..."
+																	: "Select branch"
+															}
+														/>
 													</SelectTrigger>
 													<SelectContent>
-														{Array.from(new Set([form.branch, ...(branches || [])]))
+														{Array.from(
+															new Set([form.branch, ...(branches || [])]),
+														)
 															.filter(Boolean)
 															.map((b: string) => (
 																<SelectItem key={b} value={b}>
@@ -513,7 +564,7 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 									</div>
 
 									{/* Build Method Picker */}
-									<div className="space-y-3 border-b border-border/50 pb-4 pt-1">
+									<div className="space-y-3 border-border/50 border-b pt-1 pb-4">
 										<Label className="font-medium text-sm">Build Method</Label>
 										<div className="grid gap-3 md:grid-cols-2">
 											<button
@@ -529,9 +580,7 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 												<div className="font-medium text-sm transition-colors group-hover:text-primary">
 													<span
 														className={cn(
-															isNixpacks
-																? "text-primary"
-																: "text-foreground",
+															isNixpacks ? "text-primary" : "text-foreground",
 														)}
 													>
 														Auto Detect (Nixpacks)
@@ -554,9 +603,7 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 												<div className="font-medium text-sm transition-colors group-hover:text-primary">
 													<span
 														className={cn(
-															isDockerfile
-																? "text-primary"
-																: "text-foreground",
+															isDockerfile ? "text-primary" : "text-foreground",
 														)}
 													>
 														Dockerfile Path
@@ -637,43 +684,73 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 						</div>
 
 						{project.status === "RUNNING" && metricsData.length > 0 && (
-							<div className="mt-2 space-y-4 border-t border-border/50 pt-4">
+							<div className="mt-2 space-y-4 border-border/50 border-t pt-4">
 								<div>
-									<Label className="mb-2 block text-xs text-muted-foreground">
+									<Label className="mb-2 block text-muted-foreground text-xs">
 										CPU Usage (%)
 									</Label>
 									<div className="h-28 w-full">
 										<ResponsiveContainer height="100%" width="100%">
 											<LineChart data={metricsData}>
-												<CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+												<CartesianGrid
+													stroke="rgba(255,255,255,0.1)"
+													strokeDasharray="3 3"
+													vertical={false}
+												/>
 												<XAxis dataKey="time" hide />
 												<YAxis domain={[0, "dataMax + 10"]} hide />
 												<Tooltip
-													contentStyle={{ backgroundColor: "rgba(0,0,0,0.8)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px" }}
+													contentStyle={{
+														backgroundColor: "rgba(0,0,0,0.8)",
+														border: "1px solid rgba(255,255,255,0.1)",
+														borderRadius: "8px",
+													}}
 													itemStyle={{ color: "#fff" }}
 													labelStyle={{ color: "rgba(255,255,255,0.7)" }}
 												/>
-												<Line dataKey="cpu" dot={false} isAnimationActive={false} stroke="#f97316" strokeWidth={2} type="monotone" />
+												<Line
+													dataKey="cpu"
+													dot={false}
+													isAnimationActive={false}
+													stroke="#f97316"
+													strokeWidth={2}
+													type="monotone"
+												/>
 											</LineChart>
 										</ResponsiveContainer>
 									</div>
 								</div>
 								<div>
-									<Label className="mb-2 block text-xs text-muted-foreground">
+									<Label className="mb-2 block text-muted-foreground text-xs">
 										Memory Usage (MB)
 									</Label>
 									<div className="h-28 w-full">
 										<ResponsiveContainer height="100%" width="100%">
 											<LineChart data={metricsData}>
-												<CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" vertical={false} />
+												<CartesianGrid
+													stroke="rgba(255,255,255,0.1)"
+													strokeDasharray="3 3"
+													vertical={false}
+												/>
 												<XAxis dataKey="time" hide />
 												<YAxis domain={[0, "dataMax + 50"]} hide />
 												<Tooltip
-													contentStyle={{ backgroundColor: "rgba(0,0,0,0.8)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "8px" }}
+													contentStyle={{
+														backgroundColor: "rgba(0,0,0,0.8)",
+														border: "1px solid rgba(255,255,255,0.1)",
+														borderRadius: "8px",
+													}}
 													itemStyle={{ color: "#fff" }}
 													labelStyle={{ color: "rgba(255,255,255,0.7)" }}
 												/>
-												<Line dataKey="memory" dot={false} isAnimationActive={false} stroke="#3b82f6" strokeWidth={2} type="monotone" />
+												<Line
+													dataKey="memory"
+													dot={false}
+													isAnimationActive={false}
+													stroke="#3b82f6"
+													strokeWidth={2}
+													type="monotone"
+												/>
 											</LineChart>
 										</ResponsiveContainer>
 									</div>
@@ -681,6 +758,31 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 							</div>
 						)}
 					</GlassCard>
+
+					{/* ─── Dockerfile Content Card (only for MANUAL source) ─── */}
+					{isManual && (
+						<GlassCard className="flex flex-col gap-4 md:col-span-2">
+							<div className="flex items-center gap-3">
+								<div className="rounded-lg bg-emerald-500/10 p-2 text-emerald-500">
+									<FileCode2 className="h-5 w-5" />
+								</div>
+								<div>
+									<h3 className="font-medium">Dockerfile</h3>
+									<p className="text-muted-foreground text-sm">
+										Edit your Dockerfile content. Changes require a redeploy.
+									</p>
+								</div>
+							</div>
+
+							<FileContentSourcePicker
+								content={form.dockerfileContent}
+								fileType="dockerfile"
+								onContentChange={(content) =>
+									update("dockerfileContent", content)
+								}
+							/>
+						</GlassCard>
+					)}
 
 					{/* ─── Build Commands Card (only for Nixpacks) ─── */}
 					{isGit && isNixpacks && (
@@ -721,7 +823,6 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 						</GlassCard>
 					)}
 
-					
 					{/* ─── Ports & Domains Card ─────────────────────── */}
 					<GlassCard className="flex flex-col gap-4 md:col-span-2">
 						<div className="flex items-center justify-between">
@@ -756,51 +857,60 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 
 						<div className="space-y-4 pt-2">
 							<div className="space-y-2 text-muted-foreground text-xs">
-								<div className="grid gap-2 grid-cols-[120px_1fr_130px_60px]">
+								<div className="grid grid-cols-[120px_1fr_130px_60px] gap-2">
 									<div className="font-medium">Container Port</div>
 									<div className="font-medium">Domain</div>
-									<div className="font-medium shrink-0">Exposed</div>
+									<div className="shrink-0 font-medium">Exposed</div>
 									<div className="w-[60px]"></div>
 								</div>
 							</div>
 							<div className="space-y-3">
 								{form.runtimePorts.map((entry, index) => (
 									<div
-										className="fade-in zoom-in-95 grid animate-in gap-2 duration-200 grid-cols-[120px_1fr_130px_60px]"
+										className="fade-in zoom-in-95 grid animate-in grid-cols-[120px_1fr_130px_60px] gap-2 duration-200"
 										key={entry.id}
 									>
 										<Input
-											className="bg-muted/20 font-mono text-sm px-3"
+											className="bg-muted/20 px-3 font-mono text-sm"
 											onChange={(e) => {
 												const newPorts = [...form.runtimePorts];
-												newPorts[index] = { ...newPorts[index], port: e.target.value } as RuntimePortEntry;
+												newPorts[index] = {
+													...newPorts[index],
+													port: e.target.value,
+												} as RuntimePortEntry;
 												update("runtimePorts", newPorts);
 											}}
 											placeholder="3000"
 											value={entry.port}
 										/>
 										<Input
-											className="bg-muted/20 font-mono text-sm px-3"
+											className="bg-muted/20 px-3 font-mono text-sm"
 											onChange={(e) => {
 												const newPorts = [...form.runtimePorts];
-												newPorts[index] = { ...newPorts[index], domain: e.target.value } as RuntimePortEntry;
+												newPorts[index] = {
+													...newPorts[index],
+													domain: e.target.value,
+												} as RuntimePortEntry;
 												update("runtimePorts", newPorts);
 											}}
 											placeholder="https://app.example.com"
 											value={entry.domain}
 										/>
 										<Input
-											className="bg-muted/20 font-mono text-sm px-3"
+											className="bg-muted/20 px-3 font-mono text-sm"
 											onChange={(e) => {
 												const newPorts = [...form.runtimePorts];
-												newPorts[index] = { ...newPorts[index], exposedPort: e.target.value } as RuntimePortEntry;
+												newPorts[index] = {
+													...newPorts[index],
+													exposedPort: e.target.value,
+												} as RuntimePortEntry;
 												update("runtimePorts", newPorts);
 											}}
 											placeholder="8080"
 											value={entry.exposedPort}
 										/>
 										<Button
-											className="hover:bg-destructive/10 hover:text-destructive px-2"
+											className="px-2 hover:bg-destructive/10 hover:text-destructive"
 											onClick={() => {
 												update(
 													"runtimePorts",
@@ -817,7 +927,6 @@ export function SettingsTab({ project, onRedeploy }: SettingsTabProps) {
 							</div>
 						</div>
 					</GlassCard>
-
 				</div>
 			</div>
 

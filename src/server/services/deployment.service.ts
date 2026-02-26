@@ -139,6 +139,7 @@ class DeploymentService {
 		rootDirectory: string,
 		imageName: string,
 		commitHash?: string,
+		noCache?: boolean,
 	): Promise<{ commitHash: string; commitMessage: string }> {
 		const tempRoot = await mkdtemp(join(tmpdir(), "vortex-railpack-"));
 		const cloneDir = join(tempRoot, "repo");
@@ -294,16 +295,14 @@ class DeploymentService {
 				`\n[build] Running railpack in ${buildContextDir}\n`,
 			);
 
-			const nixpacksCode = await this.runProcess(
-				"nixpacks",
-				["build", ".", "--name", imageName],
-				{
-					cwd: buildContextDir,
-					onData: (chunk) => {
-						void this.appendBuildLog(deploymentId, chunk);
-					},
+			const nixpacksArgs = ["build", ".", "--name", imageName];
+			if (noCache) nixpacksArgs.push("--no-cache");
+			const nixpacksCode = await this.runProcess("nixpacks", nixpacksArgs, {
+				cwd: buildContextDir,
+				onData: (chunk) => {
+					void this.appendBuildLog(deploymentId, chunk);
 				},
-			);
+			});
 
 			if (nixpacksCode !== 0) {
 				await this.appendBuildLog(
@@ -326,6 +325,7 @@ class DeploymentService {
 		deploymentId: string,
 		dockerfileContent: string,
 		imageTag: string,
+		noCache?: boolean,
 	) {
 		// 1. Create a clean temp directory (The "Context")
 		const tempDir = await mkdtemp(join(tmpdir(), "vortex-manual-"));
@@ -347,23 +347,21 @@ class DeploymentService {
 			);
 
 			// 3. Run Standard Docker Build
-			const buildCode = await this.runProcess(
-				"docker",
-				[
-					"build",
-					"-f",
-					"Dockerfile", // Use the file we just wrote
-					"-t",
-					imageTag, // Tag it immediately
-					".", // Context is this temp dir
-					"--progress",
-					"plain", // Plain text logs for DB
-				],
-				{
-					cwd: tempDir,
-					onData: (chunk) => void this.appendBuildLog(deploymentId, chunk),
-				},
-			);
+			const buildArgs = [
+				"build",
+				"-f",
+				"Dockerfile",
+				"-t",
+				imageTag,
+				".",
+				"--progress",
+				"plain",
+			];
+			if (noCache) buildArgs.push("--no-cache");
+			const buildCode = await this.runProcess("docker", buildArgs, {
+				cwd: tempDir,
+				onData: (chunk) => void this.appendBuildLog(deploymentId, chunk),
+			});
 
 			if (buildCode !== 0) {
 				throw new Error(`Docker build failed with exit code ${buildCode}`);
@@ -422,6 +420,7 @@ class DeploymentService {
 		deploymentId: string,
 		project: Project,
 		commitHash?: string,
+		noCache?: boolean,
 	) {
 		try {
 			// mark current running deployments as superseded and fetch updated rows
@@ -479,6 +478,7 @@ class DeploymentService {
 					project.rootDirectory ?? "/",
 					imageName,
 					commitHash,
+					noCache,
 				);
 
 				// Save the resolved commit info to the deployment
@@ -509,6 +509,7 @@ class DeploymentService {
 						deploymentId,
 						project.dockerfileContent,
 						imageName,
+						noCache,
 					);
 				} else if (project.composeFileContent) {
 				} else {
@@ -698,6 +699,7 @@ class DeploymentService {
 	async startNewDeployment(
 		source: "manual" | "webhook" | "redeploy" = "manual",
 		commitHash?: string,
+		noCache?: boolean,
 	) {
 		const project = await this.getProjectFromDb();
 
@@ -722,7 +724,12 @@ class DeploymentService {
 			.set({ status: "STARTING", activeDeploymentId: deploymentId })
 			.where(eq(projects.id, this.projectId));
 
-		void this.runDeploymentInBackground(deploymentId, project, commitHash);
+		void this.runDeploymentInBackground(
+			deploymentId,
+			project,
+			commitHash,
+			noCache,
+		);
 
 		return deploymentId;
 	}

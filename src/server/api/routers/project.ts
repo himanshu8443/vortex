@@ -137,21 +137,23 @@ export const projectRouter = createTRPCRouter({
 
 			if (!project) throw new Error("Failed to create project record");
 
-			const [ports] = await ctx.db
-				.insert(projectPorts)
-				.values(
-					input.portsData.map((portData) => ({
-						projectId: project.id,
-						port: portData.port,
-						domain: portData.domain,
-						exposedPort: portData.exposedPort
-							? parseInt(portData.exposedPort, 10)
-							: null,
-					})),
-				)
-				.returning();
+			if (input.portsData && input.portsData.length > 0) {
+				const [ports] = await ctx.db
+					.insert(projectPorts)
+					.values(
+						input.portsData.map((portData) => ({
+							projectId: project.id,
+							port: portData.port,
+							domain: portData.domain,
+							exposedPort: portData.exposedPort
+								? parseInt(portData.exposedPort, 10)
+								: null,
+						})),
+					)
+					.returning();
 
-			if (!ports) throw new Error("Failed to create project ports");
+				if (!ports) throw new Error("Failed to create project ports");
+			}
 
 			const deploymentService = new DeploymentService(project.id);
 			const deploymentId = await deploymentService.startNewDeployment();
@@ -170,6 +172,7 @@ export const projectRouter = createTRPCRouter({
 				branch: z.string().optional(),
 				rootDirectory: z.string().optional(),
 				dockerfilePath: z.string().optional(),
+				dockerfileContent: z.string().optional(),
 				installCommand: z.string().nullable().optional(),
 				buildCommand: z.string().nullable().optional(),
 				startCommand: z.string().nullable().optional(),
@@ -177,26 +180,28 @@ export const projectRouter = createTRPCRouter({
 				memoryLimit: z.string().optional(),
 				buildType: z.enum(["DOCKERFILE", "COMPOSE", "NIXPACKS"]).optional(),
 				name: z.string().min(1).optional(),
-				portsData: z.array(
-					z.object({
-						port: z.number().int().min(1).max(65535),
-						domain: z.string().url().optional().nullable(),
-						exposedPort: z
-							.string()
-							.refine(
-								(val) => {
-									if (!val) return true; // Optional
-									const port = parseInt(val, 10);
-									return port >= 1 && port <= 65535;
-								},
-								{
-									message: "Must be a valid port number (1-65535)",
-								},
-							)
-							.optional()
-							.nullable(),
-					}),
-				).optional(),
+				portsData: z
+					.array(
+						z.object({
+							port: z.number().int().min(1).max(65535),
+							domain: z.string().url().optional().nullable(),
+							exposedPort: z
+								.string()
+								.refine(
+									(val) => {
+										if (!val) return true; // Optional
+										const port = parseInt(val, 10);
+										return port >= 1 && port <= 65535;
+									},
+									{
+										message: "Must be a valid port number (1-65535)",
+									},
+								)
+								.optional()
+								.nullable(),
+						}),
+					)
+					.optional(),
 			}),
 		)
 		.mutation(async ({ ctx, input }) => {
@@ -220,6 +225,8 @@ export const projectRouter = createTRPCRouter({
 				setValues.rootDirectory = updates.rootDirectory;
 			if (updates.dockerfilePath !== undefined)
 				setValues.dockerfilePath = updates.dockerfilePath;
+			if (updates.dockerfileContent !== undefined)
+				setValues.dockerfileContent = updates.dockerfileContent;
 			if (updates.installCommand !== undefined)
 				setValues.installCommand = updates.installCommand;
 			if (updates.buildCommand !== undefined)
@@ -231,8 +238,7 @@ export const projectRouter = createTRPCRouter({
 				setValues.memoryLimit = updates.memoryLimit;
 			if (updates.buildType !== undefined)
 				setValues.buildType = updates.buildType;
-			if (updates.name !== undefined)
-				setValues.name = updates.name;
+			if (updates.name !== undefined) setValues.name = updates.name;
 
 			if (Object.keys(setValues).length > 0) {
 				await ctx.db
@@ -245,20 +251,18 @@ export const projectRouter = createTRPCRouter({
 				await ctx.db
 					.delete(projectPorts)
 					.where(eq(projectPorts.projectId, projectId));
-				
+
 				if (updates.portsData.length > 0) {
-					await ctx.db
-						.insert(projectPorts)
-						.values(
-							updates.portsData.map((portData) => ({
-								projectId,
-								port: portData.port,
-								domain: portData.domain,
-								exposedPort: portData.exposedPort
-									? parseInt(portData.exposedPort, 10)
-									: null,
-							}))
-						);
+					await ctx.db.insert(projectPorts).values(
+						updates.portsData.map((portData) => ({
+							projectId,
+							port: portData.port,
+							domain: portData.domain,
+							exposedPort: portData.exposedPort
+								? parseInt(portData.exposedPort, 10)
+								: null,
+						})),
+					);
 				}
 			}
 
@@ -344,7 +348,7 @@ export const projectRouter = createTRPCRouter({
 		}),
 
 	redeploy: protectedProcedure
-		.input(z.object({ projectId: z.string() }))
+		.input(z.object({ projectId: z.string(), noCache: z.boolean().optional() }))
 		.mutation(async ({ ctx, input }) => {
 			const project = await ctx.db.query.projects.findFirst({
 				where: eq(projects.id, input.projectId),
@@ -357,8 +361,11 @@ export const projectRouter = createTRPCRouter({
 				});
 
 			const deploymentService = new DeploymentService(project.id);
-			const deploymentId =
-				await deploymentService.startNewDeployment("redeploy");
+			const deploymentId = await deploymentService.startNewDeployment(
+				"redeploy",
+				undefined,
+				input.noCache,
+			);
 
 			return { success: true, data: { deploymentId } };
 		}),

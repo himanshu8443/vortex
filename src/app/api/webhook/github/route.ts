@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, or } from "drizzle-orm";
 import { headers } from "next/headers";
 import { NextResponse } from "next/server";
 import { db } from "@/server/db";
@@ -24,7 +24,10 @@ export async function POST(req: Request) {
 				.update(rawBody)
 				.digest("hex")}`;
 
-			if (signature === expected) {
+			if (
+				signature.length === expected.length &&
+				crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+			) {
 				verifiedApp = app;
 				break; // Found it!
 			}
@@ -41,14 +44,24 @@ export async function POST(req: Request) {
 		const payload = JSON.parse(rawBody);
 		if ((await headers()).get("x-github-event") === "push") {
 			const repoName = payload.repository.full_name;
-			const branch = payload.ref.replace("refs/heads/", "");
+			const branch = payload.ref?.replace("refs/heads/", "");
 
 			console.log(
 				`[Webhook] Verified by '${verifiedApp.name}' for ${repoName}`,
 			);
 
+			const htmlUrl = payload.repository.html_url;
+			const cloneUrl = payload.repository.clone_url;
+			const sshUrl = payload.repository.ssh_url;
+
 			const projectsList = await db.query.projects.findMany({
-				where: eq(projects.repoUrl, repoName),
+				where: or(
+					htmlUrl ? eq(projects.repoUrl, htmlUrl) : undefined,
+					cloneUrl ? eq(projects.repoUrl, cloneUrl) : undefined,
+					sshUrl ? eq(projects.repoUrl, sshUrl) : undefined,
+					eq(projects.repoUrl, `https://github.com/${repoName}`),
+					eq(projects.repoUrl, `https://github.com/${repoName}.git`),
+				),
 			});
 
 			for (const project of projectsList) {
@@ -61,7 +74,8 @@ export async function POST(req: Request) {
 		}
 
 		return NextResponse.json({ success: true });
-	} catch (_e) {
+	} catch (e) {
+		console.error("[Webhook Error]", e);
 		return NextResponse.json(
 			{ error: "Internal Server Error" },
 			{ status: 500 },

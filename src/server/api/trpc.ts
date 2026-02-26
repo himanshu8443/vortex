@@ -29,7 +29,6 @@ export const createTRPCContext = async (opts: { headers: Headers }) => {
 	const session = await betterAuth.api.getSession({
 		headers: opts.headers,
 	});
-	console.log("Session:", session);
 	return {
 		db,
 		session: session,

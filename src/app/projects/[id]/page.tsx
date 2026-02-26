@@ -1,5 +1,6 @@
 "use client";
 
+import { Loader2, Rocket } from "lucide-react";
 import {
 	useParams,
 	usePathname,
@@ -7,6 +8,7 @@ import {
 	useSearchParams,
 } from "next/navigation";
 import * as React from "react";
+import { toast } from "sonner";
 import { DangerZoneTab } from "@/components/projects/danger-zone-tab";
 import { DeploymentsTab } from "@/components/projects/deployments-tab";
 import { EnvTab } from "@/components/projects/env-tab";
@@ -14,11 +16,20 @@ import { LogsTab } from "@/components/projects/logs-tab";
 import { ProjectHeader } from "@/components/projects/project-header";
 import { SettingsTab } from "@/components/projects/settings-tab";
 import { Button } from "@/components/ui/button";
+import {
+	Dialog,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBanner } from "@/components/ui/status-banner";
+import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { api } from "@/trpc/react";
-import { toast } from "sonner";
 
 const fallbackVariables = [{ key: "", value: "" }];
 const tabValues = ["settings", "deployments", "logs", "env", "danger"] as const;
@@ -160,12 +171,22 @@ export default function ProjectPage() {
 		}, 1000);
 	};
 
+	// Redeploy dialog state
+	const [redeployDialogOpen, setRedeployDialogOpen] = React.useState(false);
+	const [noCache, setNoCache] = React.useState(false);
+
 	const handleDelete = () => {
 		void deleteProject.mutateAsync({ projectId });
 	};
 
+	const openRedeployDialog = () => {
+		setNoCache(false);
+		setRedeployDialogOpen(true);
+	};
+
 	const handleRedeploy = () => {
-		void redeployProject.mutateAsync({ projectId });
+		setRedeployDialogOpen(false);
+		void redeployProject.mutateAsync({ projectId, noCache });
 	};
 
 	const handleRestart = () => {
@@ -201,7 +222,7 @@ export default function ProjectPage() {
 					</div>
 				</div>
 				<main className="container mx-auto mt-8 max-w-6xl px-4 md:px-6">
-					<div className="flex gap-4 border-b border-border/40 pb-2">
+					<div className="flex gap-4 border-border/40 border-b pb-2">
 						<Skeleton className="h-6 w-24" />
 						<Skeleton className="h-6 w-24" />
 						<Skeleton className="h-6 w-24" />
@@ -228,7 +249,10 @@ export default function ProjectPage() {
 		);
 	}
 
-	const primaryDomain = project?.ports?.map((port) => port.domain).filter((domain) => domain !== null) ?? [];
+	const primaryDomain =
+		project?.ports
+			?.map((port) => port.domain)
+			.filter((domain) => domain !== null) ?? [];
 	const repoDisplay = project.repoUrl ?? project.image ?? "manual";
 
 	return (
@@ -242,7 +266,7 @@ export default function ProjectPage() {
 				lastUpdated={getUpdatedAtLabel(
 					project.updatedAt ?? project.createdAt ?? null,
 				)}
-				onRedeploy={handleRedeploy}
+				onRedeploy={openRedeployDialog}
 				onRestart={handleRestart}
 				projectName={project.name}
 				status={mapProjectStatus(project.status)}
@@ -304,7 +328,7 @@ export default function ProjectPage() {
 					</TabsContent>
 
 					<TabsContent value="settings">
-						<SettingsTab onRedeploy={handleRedeploy} project={project} />
+						<SettingsTab onRedeploy={openRedeployDialog} project={project} />
 					</TabsContent>
 
 					<TabsContent value="env">
@@ -315,6 +339,7 @@ export default function ProjectPage() {
 						<DangerZoneTab
 							isDeleting={deleteProject.isPending}
 							onDelete={handleDelete}
+							projectName={project.name}
 						/>
 					</TabsContent>
 				</Tabs>
@@ -326,6 +351,65 @@ export default function ProjectPage() {
 				onCancel={handleDiscard}
 				open={hasChanges}
 			/>
+
+			{/* Redeploy Confirmation Dialog */}
+			<Dialog onOpenChange={setRedeployDialogOpen} open={redeployDialogOpen}>
+				<DialogContent className="sm:max-w-sm">
+					<DialogHeader>
+						<DialogTitle className="flex items-center gap-2">
+							<Rocket className="h-5 w-5 text-primary" />
+							Redeploy Project
+						</DialogTitle>
+						<DialogDescription>
+							This will trigger a new deployment for{" "}
+							<strong className="text-foreground">{project.name}</strong>.
+						</DialogDescription>
+					</DialogHeader>
+
+					<div className="flex items-center justify-between rounded-lg border border-border/60 bg-muted/20 px-4 py-3">
+						<div className="space-y-0.5">
+							<Label
+								className="cursor-pointer font-medium text-sm"
+								htmlFor="no-cache"
+							>
+								No Cache
+							</Label>
+							<p className="text-muted-foreground text-xs">
+								Build without using Docker layer cache
+							</p>
+						</div>
+						<Switch
+							checked={noCache}
+							id="no-cache"
+							onCheckedChange={setNoCache}
+						/>
+					</div>
+
+					<DialogFooter className="gap-2 space-x-4 pt-2 sm:gap-0">
+						<Button
+							onClick={() => setRedeployDialogOpen(false)}
+							type="button"
+							variant="outline"
+						>
+							Cancel
+						</Button>
+						<Button
+							disabled={redeployProject.isPending}
+							onClick={handleRedeploy}
+							type="button"
+						>
+							{redeployProject.isPending ? (
+								<>
+									<Loader2 className="mr-2 h-4 w-4 animate-spin" />
+									Deploying...
+								</>
+							) : (
+								"Redeploy"
+							)}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
 		</div>
 	);
 }

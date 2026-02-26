@@ -52,8 +52,7 @@ export type ProjectFormData = {
 	branch: string;
 	imageName: string;
 	imageTag: string;
-	dockerfilePath: string;
-	buildContextPath: string;
+	dockerfileContent: string;
 	selectedGithubAppId: string | null;
 
 	// Build

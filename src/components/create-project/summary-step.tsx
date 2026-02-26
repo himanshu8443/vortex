@@ -11,6 +11,7 @@ export function SummaryStep() {
 		imageTag,
 		runtimePorts,
 		branch,
+		dockerfileContent,
 	} = formData;
 
 	return (
@@ -53,6 +54,17 @@ export function SummaryStep() {
 					<span className="text-muted-foreground">Image</span>
 					<span className="mt-0.5 font-mono text-xs">
 						{imageName}:{imageTag || "latest"}
+					</span>
+				</div>
+			)}
+
+			{sourceType === "DOCKERFILE" && (
+				<div className="flex justify-between border-border/50 border-b py-2">
+					<span className="text-muted-foreground">Dockerfile</span>
+					<span className="font-medium text-xs">
+						{dockerfileContent.trim()
+							? `${dockerfileContent.split("\n").length} lines configured`
+							: "Not configured"}
 					</span>
 				</div>
 			)}

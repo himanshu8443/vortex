@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
+import { FileContentSourcePicker } from "./file-content-editor-dialog";
 import {
 	extractGitHubRepoPath,
 	type SourceType,
@@ -27,8 +28,7 @@ export function SourceStep() {
 		sourceType,
 		repoUrl,
 		branch,
-		buildContextPath,
-		dockerfilePath,
+		dockerfileContent,
 		dockerfilePathForGit,
 		gitBuildMethod,
 		imageName,
@@ -517,27 +517,15 @@ export function SourceStep() {
 
 			{/* ─── Standalone Dockerfile Fields ──── */}
 			{sourceType === "DOCKERFILE" && (
-				<div className="grid gap-4 rounded-lg border border-border/60 bg-card/20 p-4 shadow-sm md:grid-cols-2">
-					<div className="space-y-2">
-						<Label className="font-medium text-sm">Dockerfile Path</Label>
-						<Input
-							className="bg-muted/20"
-							onChange={(e) => updateForm({ dockerfilePath: e.target.value })}
-							placeholder="/Dockerfile"
-							value={dockerfilePath}
-						/>
-					</div>
-					<div className="space-y-2">
-						<Label className="font-medium text-sm">
-							Build Context Path (optional)
-						</Label>
-						<Input
-							className="bg-muted/20"
-							onChange={(e) => updateForm({ buildContextPath: e.target.value })}
-							placeholder="/"
-							value={buildContextPath}
-						/>
-					</div>
+				<div className="space-y-3 rounded-lg border border-border/60 bg-card/20 p-4 shadow-sm">
+					<Label className="font-medium text-sm">Dockerfile Content</Label>
+					<FileContentSourcePicker
+						content={dockerfileContent}
+						fileType="dockerfile"
+						onContentChange={(content) =>
+							updateForm({ dockerfileContent: content })
+						}
+					/>
 				</div>
 			)}
 		</GlassCard>

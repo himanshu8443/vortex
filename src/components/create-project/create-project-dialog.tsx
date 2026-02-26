@@ -3,7 +3,7 @@
 import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
-
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
 	Dialog,
@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 import { api } from "@/trpc/react";
-import { toast } from "sonner";
 
 import { BuildStep } from "./build-step";
 import { EnvironmentStep } from "./environment-step";
@@ -39,8 +38,7 @@ const INITIAL_FORM_DATA: ProjectFormData = {
 	branch: "main",
 	imageName: "",
 	imageTag: "latest",
-	dockerfilePath: "/Dockerfile",
-	buildContextPath: "/",
+	dockerfileContent: "",
 	selectedGithubAppId: null,
 
 	overrideInstallCommand: false,
@@ -115,7 +113,7 @@ export function CreateProjectDialog({
 			if (formData.sourceType === "GIT") return !!formData.repoUrl.trim();
 			if (formData.sourceType === "DOCKER_IMAGE")
 				return !!formData.imageName.trim();
-			return !!formData.dockerfilePath.trim();
+			return !!formData.dockerfileContent.trim();
 		}
 		if (currentStep === "Build") {
 			if (formData.overrideBuildCommand && !formData.buildCommand.trim())
@@ -128,10 +126,15 @@ export function CreateProjectDialog({
 		}
 		if (currentStep === "Runtime") {
 			const activePorts = formData.runtimePorts.filter(
-				(entry) => entry.port.trim() || entry.domain.trim() || entry.exposedPort.trim(),
+				(entry) =>
+					entry.port.trim() || entry.domain.trim() || entry.exposedPort.trim(),
 			);
 			for (const entry of activePorts) {
-				if (!entry.port.trim() || (!entry.domain.trim() && !entry.exposedPort.trim())) return false;
+				if (
+					!entry.port.trim() ||
+					(!entry.domain.trim() && !entry.exposedPort.trim())
+				)
+					return false;
 			}
 			return true;
 		}
@@ -141,7 +144,11 @@ export function CreateProjectDialog({
 	const handleCreate = () => {
 		setFormError("");
 		const portsData = formData.runtimePorts
-			.filter((entry) => entry.port.trim() && (entry.domain.trim() || entry.exposedPort.trim()))
+			.filter(
+				(entry) =>
+					entry.port.trim() &&
+					(entry.domain.trim() || entry.exposedPort.trim()),
+			)
 			.map((entry) => {
 				let domain: string | undefined = entry.domain.trim() || undefined;
 				// If a domain is provided but lacks a protocol, default to https://
@@ -161,7 +168,9 @@ export function CreateProjectDialog({
 				return;
 			}
 			if (!item.domain && !item.exposedPort) {
-				setFormError("Each port entry requires a domain/subdomain or an exposed port");
+				setFormError(
+					"Each port entry requires a domain/subdomain or an exposed port",
+				);
 				return;
 			}
 			if (item.domain) {
@@ -172,7 +181,9 @@ export function CreateProjectDialog({
 						return;
 					}
 					if (url.pathname !== "/" && url.pathname !== "") {
-						setFormError("Domain must simply be a domain without a path (e.g. https://app.example.com)");
+						setFormError(
+							"Domain must simply be a domain without a path (e.g. https://app.example.com)",
+						);
 						return;
 					}
 				} catch {
@@ -209,9 +220,7 @@ export function CreateProjectDialog({
 			rootDirectory:
 				formData.sourceType === "GIT"
 					? formData.rootPath.trim() || "/"
-					: formData.sourceType === "DOCKERFILE"
-						? formData.buildContextPath.trim() || "/"
-						: undefined,
+					: undefined,
 			githubAppId:
 				formData.sourceType === "GIT" &&
 				formData.selectedGithubAppId &&
@@ -219,12 +228,14 @@ export function CreateProjectDialog({
 					? formData.selectedGithubAppId
 					: undefined,
 			dockerfilePath:
+				formData.sourceType === "GIT" &&
+				formData.gitBuildMethod === "DOCKERFILE_PATH"
+					? formData.dockerfilePathForGit.trim()
+					: undefined,
+			dockerfileContent:
 				formData.sourceType === "DOCKERFILE"
-					? formData.dockerfilePath.trim()
-					: formData.sourceType === "GIT" &&
-							formData.gitBuildMethod === "DOCKERFILE_PATH"
-						? formData.dockerfilePathForGit.trim()
-						: undefined,
+					? formData.dockerfileContent.trim()
+					: undefined,
 			image:
 				formData.sourceType === "DOCKER_IMAGE"
 					? `${formData.imageName.trim()}:${(formData.imageTag || "latest").trim()}`
