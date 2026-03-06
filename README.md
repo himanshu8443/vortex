@@ -2,6 +2,13 @@
 
 A web-based container management and deployment platform. Built with a modern Next.js stack, it allows you to effortlessly deploy, manage, and monitor applications from Git repositories, Docker registries, or manual Dockerfile configurations.
 
+<img width="2976" height="1430" alt="wmremove-transformed" src="https://github.com/user-attachments/assets/0de12474-0834-4d18-8415-abb651a84332" />
+<details>
+  <summary>More Screenshots</summary>
+  <img width="1260" height="612" alt="Screenshot 2026-03-06 150051" src="https://github.com/user-attachments/assets/10857b81-424e-49c4-8984-e19f74ba7d2a" />
+  <img width="1264" height="614" alt="Screenshot 2026-03-06 150118" src="https://github.com/user-attachments/assets/5d0128d2-3830-4729-a5e2-8a5590eea3cc" />
+</details>
+
 ## Features
 
 - **Automated Deployments**: Easily deploy applications from GitHub repositories. Vortex automatically detects your project type using Nixpacks or allows you to specify a custom Dockerfile.
